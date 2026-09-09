@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Fibonacci Generator</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 500px;
+        margin: 50px auto;
+        background: #f4f4f4;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .nav {
+        margin-bottom: 20px;
+        padding: 10px;
+        background: #eee;
+        border-radius: 5px;
+        display: flex;
+        gap: 15px;
+      }
+      .nav a {
+        text-decoration: none;
+        color: #333;
+        font-weight: bold;
+        font-size: 14px;
+      }
+      .nav a:hover {
+        color: #28a745;
+      }
+      input[type="number"] {
+        width: 70%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      button {
+        padding: 10px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #218838;
+      }
+      .result-box {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f9f9f9;
+        border-left: 5px solid #28a745;
+        border-radius: 4px;
+      }
+      .series-text {
+        font-size: 18px;
+        color: #333;
+        line-height: 1.6;
+        word-wrap: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="nav">
+      <a href="{% url 'index' %}">To-Do List</a>
+      <a href="{% url 'fibonacci' %}">Fibonacci Generator</a>
+    </div>
+
+    <div class="container">
+      <h2>Fibonacci Generator</h2>
+      <form method="GET">
+        <input
+          type="number"
+          name="n"
+          placeholder="Enter terms (e.g. 10)"
+          value="{{ n }}"
+          required
+        />
+        <button type="submit">Generate</button>
+      </form>
+
+      {% if series %}
+      <div class="result-box">
+        <strong>Result for {{ n }} terms:</strong>
+        <p class="series-text">{{ series|join:", " }}</p>
+      </div>
+      {% endif %}
+    </div>
+  </body>
+</html>
