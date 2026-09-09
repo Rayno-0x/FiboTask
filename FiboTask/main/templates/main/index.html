@@ -1,93 +1,37 @@
-<!doctype html>
-<html>
-  <head>
-    <title>To-Do-List</title>
-    <style>
-      body {
-        font-family: sans-serif;
-        max-width: 500px;
-        margin: 50px auto;
-        background: #f4f4f4;
-      }
-      .container {
-        background: white;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      }
-      input[type="text"] {
-        width: 70%;
-        padding: 10px;
-        border: 1px solid #ddd;
-      }
-      button {
-        padding: 10px;
-        background: #28a745;
-        color: white;
-        border: none;
-        cursor: pointer;
-      }
-      ul {
-        list-style: none;
-        padding: 0;
-      }
-      li {
-        padding: 10px;
-        border-bottom: 1px solid #eee;
-        display: flex;
-        justify-content: space-between;
-      }
-      .delete {
-        color: red;
-        text-decoration: none;
-        font-size: 12px;
-      }
-    </style>
-  </head>
-  <body>
-    <nav style="margin-bottom: 20px; padding: 10px; background: #eee; border-radius: 5px;">
-      <a href="{% url 'index' %}" style="margin-right: 15px; text-decoration: none; color: #333; font-weight: bold;">To-Do List</a>
-      <a href="{% url 'fibonacci' %}" style="text-decoration: none; color: #333; font-weight: bold;">Fibonacci Generator</a>
-    <div class="container">
-      <h2>To-Do List</h2>
-      <form method="POST">
+{% extends "main/base.html" %}
+{% block title %}To-Do List — FiboTask{% endblock %}
+{% block content %}
+<h2>To-Do List</h2>
+<form method="post">
+  {% csrf_token %}
+  {{ form.title }}
+  <button type="submit">Add</button>
+  {% if form.title.errors %}<p style="color:red">{{ form.title.errors.0 }}</p>{% endif %}
+</form>
+<ul class="tasks">
+  {% for task in page_obj %}
+  <li>
+    <span class="{% if task.completed %}completed{% endif %}">{{ task.title }}</span>
+    <div>
+      <form method="post" action="{% url 'main:complete_task' task.id %}" class="inline-form">
         {% csrf_token %}
-        <input type="text" name="title" placeholder="New Task..." required />
-        <button type="submit">Add</button>
+        <button type="submit" class="btn-link btn-done">{% if task.completed %}Undo{% else %}Done{% endif %}</button>
       </form>
-      <ul>
-        {% for task in tasks %}
-        <li
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-          "
-        >
-          <span
-            style="{% if task.completed %}text-decoration: line-through; color: gray;{% endif %}"
-          >
-            {{ task.title }}
-          </span>
-          <div>
-            {% if not task.completed %}
-            <a
-              href="{% url 'complete_task' task.id %}"
-              style="color: blue; text-decoration: none; margin-right: 10px"
-              >Done</a
-            >
-            {% endif %}
-            <a
-              href="{% url 'delete_task' task.id %}"
-              style="color: red; text-decoration: none"
-              >Delete</a
-            >
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
+      <form method="post" action="{% url 'main:delete_task' task.id %}" class="inline-form">
+        {% csrf_token %}
+        <button type="submit" class="btn-link btn-delete">Delete</button>
+      </form>
     </div>
-  </body>
-</html>
+  </li>
+  {% empty %}
+  <li>No tasks yet — add your first one above.</li>
+  {% endfor %}
+</ul>
+{% if page_obj.has_other_pages %}
+<div class="pagination">
+  {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
