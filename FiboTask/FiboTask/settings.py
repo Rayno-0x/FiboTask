@@ -11,9 +11,17 @@ def _env_bool(name, default=False):
 
 
 # SECURITY: never commit real secrets; configure via environment.
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-only-change-me")
+# In production (DEBUG off) a missing SECRET_KEY is a hard boot error,
+# never a silent fallback to the dev key.
+_DEV_KEY = "django-insecure-dev-only-change-me"
+SECRET_KEY = os.environ.get("SECRET_KEY", _DEV_KEY)
 
 DEBUG = _env_bool("DEBUG", True)
+
+if not DEBUG and (not os.environ.get("SECRET_KEY") or SECRET_KEY == _DEV_KEY):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured("SECRET_KEY must be set when DEBUG is off.")
 
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()
@@ -92,6 +100,18 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Production hardening (active whenever DEBUG is off, e.g. on Render).
+# WhiteNoise serves static files; the manifest storage adds hashed names
+# so updated CSS/JS/favicons never stick in caches.
+if not DEBUG:
+    STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # Deliberately NOT enabling HSTS / forced HTTPS redirect yet: Render
+    # terminates TLS at its proxy and the MVP shares one SQLite database.
+    # Revisit both when accounts + Postgres land.
 
 # DoS guard for the Fibonacci generator (?n=...).
 try:

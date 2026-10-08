@@ -1,37 +1,256 @@
 {% extends "main/base.html" %}
-{% block title %}To-Do List — FiboTask{% endblock %}
+{% block title %}Tasks · FiboTask{% endblock %}
 {% block content %}
-<h2>To-Do List</h2>
-<form method="post">
-  {% csrf_token %}
-  {{ form.title }}
-  <button type="submit">Add</button>
-  {% if form.title.errors %}<p style="color:red">{{ form.title.errors.0 }}</p>{% endif %}
-</form>
-<ul class="tasks">
-  {% for task in page_obj %}
-  <li>
-    <span class="{% if task.completed %}completed{% endif %}">{{ task.title }}</span>
-    <div>
-      <form method="post" action="{% url 'main:complete_task' task.id %}" class="inline-form">
-        {% csrf_token %}
-        <button type="submit" class="btn-link btn-done">{% if task.completed %}Undo{% else %}Done{% endif %}</button>
-      </form>
-      <form method="post" action="{% url 'main:delete_task' task.id %}" class="inline-form">
-        {% csrf_token %}
-        <button type="submit" class="btn-link btn-delete">Delete</button>
+
+<div class="hero">
+  <section class="card card-pad">
+    <h1>Tasks</h1>
+    <p class="sub">{{ stats.active }} open, {{ stats.done }} done{% if sprint.total %}, sprint {{ sprint.done_pts }}/{{ sprint.total }} pts{% endif %}{% if focus_today.minutes %}, {{ focus_today.minutes }} min focused today{% endif %}</p>
+
+    <form method="post" class="add-form">
+      {% csrf_token %}
+      <div class="add-main">
+        {{ form.title }}
+        <button class="btn" type="submit">Add</button>
+      </div>
+      <details class="opts">
+        <summary>Course, priority, points, due date</summary>
+        <div class="add-sub add-sub-4">
+          {{ form.course }}
+          {{ form.priority }}
+          {{ form.estimate }}
+          {{ form.due_date }}
+        </div>
+        {{ form.notes }}
+      </details>
+      <div style="display:flex;justify-content:flex-end">
+        <span class="char" id="charCount">0/255</span>
+      </div>
+      {% if form.title.errors %}<p class="field-err">{{ form.title.errors.0 }}</p>{% endif %}
+      {% if form.non_field_errors %}<p class="field-err">{{ form.non_field_errors.0 }}</p>{% endif %}
+    </form>
+
+    <form method="get" class="toolbar" id="searchForm">
+      <div class="search">
+        <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.5 13.5L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="Search…" aria-label="Search tasks" />
+      </div>
+      <input type="hidden" name="status" value="{{ filters.status }}" />
+      <input type="hidden" name="sort" value="{{ filters.sort }}" />
+      {% if filters.course %}<input type="hidden" name="course" value="{{ filters.course }}" />{% endif %}
+    </form>
+
+    <div class="toolbar">
+      <div class="seg" role="tablist" aria-label="Filter">
+        <a href="?{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}{% if filters.course %}course={{ filters.course|urlencode }}&{% endif %}status=all&sort={{ filters.sort }}" class="{% if filters.status == 'all' %}active{% endif %}">All</a>
+        <a href="?{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}{% if filters.course %}course={{ filters.course|urlencode }}&{% endif %}status=today&sort={{ filters.sort }}" class="{% if filters.status == 'today' %}active{% endif %}">Today</a>
+        <a href="?{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}{% if filters.course %}course={{ filters.course|urlencode }}&{% endif %}status=sprint&sort={{ filters.sort }}" class="{% if filters.status == 'sprint' %}active{% endif %}">Sprint{% if sprint.count %} {{ sprint.count }}{% endif %}</a>
+        <a href="?{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}{% if filters.course %}course={{ filters.course|urlencode }}&{% endif %}status=active&sort={{ filters.sort }}" class="{% if filters.status == 'active' %}active{% endif %}">Active</a>
+        <a href="?{% if filters.q %}q={{ filters.q|urlencode }}&{% endif %}{% if filters.course %}course={{ filters.course|urlencode }}&{% endif %}status=done&sort={{ filters.sort }}" class="{% if filters.status == 'done' %}active{% endif %}">Done</a>
+      </div>
+      <form method="get" class="sort-form">
+        <input type="hidden" name="q" value="{{ filters.q }}" />
+        <input type="hidden" name="status" value="{{ filters.status }}" />
+        {% if filters.course %}<input type="hidden" name="course" value="{{ filters.course }}" />{% endif %}
+        <select class="sort" name="sort" onchange="this.form.submit()" aria-label="Sort tasks">
+          <option value="newest" {% if filters.sort == 'newest' %}selected{% endif %}>Newest</option>
+          <option value="oldest" {% if filters.sort == 'oldest' %}selected{% endif %}>Oldest</option>
+          <option value="priority" {% if filters.sort == 'priority' %}selected{% endif %}>Priority</option>
+          <option value="points" {% if filters.sort == 'points' %}selected{% endif %}>Points</option>
+          <option value="due" {% if filters.sort == 'due' %}selected{% endif %}>Due date</option>
+        </select>
       </form>
     </div>
-  </li>
-  {% empty %}
-  <li>No tasks yet — add your first one above.</li>
-  {% endfor %}
-</ul>
-{% if page_obj.has_other_pages %}
-<div class="pagination">
-  {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
-  <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-  {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+    {% if courses %}
+    <div class="course-row">
+      <span class="hint">Course:</span>
+      <a href="?status={{ filters.status }}&sort={{ filters.sort }}{% if filters.q %}&q={{ filters.q|urlencode }}{% endif %}" class="{% if not filters.course %}active{% endif %}">All</a>
+      {% for c in courses %}
+      <a href="?status={{ filters.status }}&sort={{ filters.sort }}{% if filters.q %}&q={{ filters.q|urlencode }}{% endif %}&course={{ c|urlencode }}" class="{% if filters.course == c %}active{% endif %}">{{ c }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <ul class="tasks">
+      {% for task in page_obj %}
+      <li class="task {% if task.completed %}done{% endif %} {% if task.in_sprint %}insprint{% endif %}">
+        <form method="post" action="{% url 'main:complete_task' task.id %}">
+          {% csrf_token %}
+          <button class="check" type="submit" title="{% if task.completed %}Reopen{% else %}Mark done{% endif %}" aria-label="Toggle {{ task.title }}">{% if task.completed %}<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endif %}</button>
+        </form>
+        <div class="t-body">
+          <div class="t-title">{{ task.title }}</div>
+          <div class="t-meta">
+            {% if task.course %}<span class="pill course">{{ task.course }}</span>{% endif %}
+            {% if task.estimate %}<span class="pill pts" title="Estimate">{{ task.estimate }} pts</span>{% endif %}
+            {% if task.in_sprint %}<span class="pill sprint">Sprint</span>{% endif %}
+            {% if task.due_date %}
+              {% if task.is_overdue %}<span class="pill over">{{ task.due_date }}</span>
+              {% else %}<span class="pill due">{{ task.due_date }}</span>{% endif %}
+            {% endif %}
+            <span class="dot dot-{{ task.priority|lower }}" title="{{ task.get_priority_display }} priority"></span>
+          </div>
+          {% if task.notes %}<p class="t-note">{{ task.notes|linebreaksbr }}</p>{% endif %}
+          {% if task.needs_split and task.subtasks.count == 0 and not task.completed %}
+          <p class="split-hint">{{ task.estimate }} pts is too big for one go, <a href="?open={{ task.id }}{% if base_qs %}{{ base_qs }}{% endif %}">split it into steps</a>.</p>
+          {% endif %}
+          <details class="steps-box" {% if open_id == task.id %}open{% endif %}>
+            <summary>Steps ({{ task.subtasks.all|length }} total){% if task.subtasks.all %} . tick them off{% endif %}</summary>
+            <ul class="subs">
+              {% for s in task.subtasks.all %}
+              <li class="{% if s.completed %}done{% endif %}">
+                <form method="post" action="{% url 'main:subtask_toggle' s.id %}">{% csrf_token %}<button class="mini-check" type="submit" aria-label="Toggle step">{% if s.completed %}<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M3 8.5l3.5 3.5L13 4.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endif %}</button></form>
+                <span>{{ s.title }}</span>
+                <form method="post" action="{% url 'main:subtask_delete' s.id %}">{% csrf_token %}<button class="quiet" type="submit" aria-label="Remove step"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></form>
+              </li>
+              {% empty %}
+              <li class="hint">No steps yet. Add the first tiny one . 2 minutes max.</li>
+              {% endfor %}
+            </ul>
+            {% if not task.completed %}
+            <form method="post" action="{% url 'main:subtask_add' task.id %}" class="sub-add">
+              {% csrf_token %}
+              <input type="text" name="title" maxlength="255" required placeholder="Next small step…" aria-label="New step" />
+              <button class="btn ghost small" type="submit">Add step</button>
+            </form>
+            {% endif %}
+          </details>
+          {% if editing_id == task.id and edit_form %}
+          <form method="post" action="{% url 'main:edit_task' task.id %}" class="editbox">
+            {% csrf_token %}
+            <div class="editgrid">{{ edit_form.title }}{{ edit_form.course }}{{ edit_form.priority }}{{ edit_form.estimate }}{{ edit_form.due_date }}</div>
+            {{ edit_form.notes }}
+            <div style="display:flex;gap:8px">
+              <button class="btn small" type="submit">Save</button>
+              <a class="btn ghost small" href="{% url 'main:index' %}">Cancel</a>
+            </div>
+          </form>
+          {% endif %}
+          {% if task.is_overdue and not task.completed %}
+          <details class="snooze">
+            <summary>Overdue . snooze?</summary>
+            <div class="snooze-row">
+              <form method="post" action="{% url 'main:snooze_task' task.id %}">{% csrf_token %}<input type="hidden" name="days" value="1" /><button class="mini" type="submit">+1 day</button></form>
+              <form method="post" action="{% url 'main:snooze_task' task.id %}">{% csrf_token %}<input type="hidden" name="days" value="3" /><button class="mini" type="submit">+3 days</button></form>
+              <form method="post" action="{% url 'main:snooze_task' task.id %}">{% csrf_token %}<input type="hidden" name="days" value="5" /><button class="mini" type="submit">+5 days</button></form>
+            </div>
+          </details>
+          {% endif %}
+        </div>
+        <div class="t-actions">
+          {% if not task.completed %}
+          <a class="icon-action" href="{% url 'main:focus' %}?task={{ task.id }}&minutes=13" title="Focus on this (13 min)" aria-label="Focus"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 4.8V8l2.2 1.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a>
+          {% endif %}
+          <form method="post" action="{% url 'main:toggle_sprint' task.id %}" title="{% if task.in_sprint %}Remove from sprint{% else %}Add to sprint{% endif %}">
+            {% csrf_token %}
+            <button class="icon-action {% if task.in_sprint %}on{% endif %}" type="submit" aria-label="Toggle sprint"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M9 1L3.2 8.8h3.9L6 15l5.8-8.2H7.9L9 1z" fill="currentColor"/></svg></button>
+          </form>
+          {% if editing_id != task.id %}
+          <a class="icon-action" href="?edit={{ task.id }}{% if base_qs %}{{ base_qs }}{% endif %}" title="Edit" aria-label="Edit"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M11.2 2.3l2.5 2.5L6 12.5H3.5V10L11.2 2.3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></a>
+          {% endif %}
+          <form method="post" action="{% url 'main:delete_task' task.id %}" class="js-confirm" data-confirm-title="Delete this task?" data-confirm="“{{ task.title }}” and its steps will be gone for good." data-confirm-go="Delete">
+            {% csrf_token %}
+            <button class="icon-action del" type="submit" title="Delete" aria-label="Delete"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 4h11M6.5 4V2.8h3V4M4.5 4l.6 9.2h5.8L11.5 4M6.8 7v3.4M9.2 7v3.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </form>
+        </div>
+      </li>
+      {% empty %}
+      <div class="empty">
+        <svg class="empty-art" viewBox="0 0 64 64" width="56" height="56" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="7 6" opacity=".45"/><path d="M23 32.5l6.5 6.5L41.5 26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {% if filters.q or filters.status != 'all' or filters.course %}
+          <p><b>Nothing here.</b><br /><a href="{% url 'main:index' %}">Show everything</a></p>
+        {% else %}
+          <p><b>Start with one task.</b></p>
+          <ol class="steps">
+            <li><b>1.</b> Add it above</li>
+            <li><b>2.</b> Give it points (1–21)</li>
+            <li><b>3.</b> Split 8+ into steps, add them to your sprint</li>
+          </ol>
+          <p class="hint" style="margin-top:10px">or skip the blank page:</p>
+          <form method="post" action="{% url 'main:seed_samples' %}">
+            {% csrf_token %}
+            <button class="btn ghost small" type="submit">Load 3 sample tasks</button>
+          </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </ul>
+
+    {% if stats.done %}
+    <div class="foot-row">
+      <form method="post" action="{% url 'main:clear_completed' %}" class="js-confirm" data-confirm-title="Clear completed?" data-confirm="All {{ stats.done }} completed task(s) will be deleted." data-confirm-go="Clear all">
+        {% csrf_token %}
+        <button class="quiet" type="submit">Clear {{ stats.done }} completed</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% if page_obj.has_other_pages %}
+    <div class="pagination">
+      {% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}{{ base_qs }}">Previous</a>{% endif %}
+      <span>{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}{{ base_qs }}">Next</a>{% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="side">
+    <section class="card card-pad">
+      <h2>Today</h2>
+      <div class="ring-wrap" style="margin-top:12px">
+        <div class="ring" style="--p:{{ stats.pct }}"><b>{{ stats.pct }}%</b></div>
+        <div>
+          <div class="bignum">{{ stats.active }} <span class="hint">open</span></div>
+          <div class="hint">{{ stats.done }} done, {{ sprint.velocity }} pts shipped</div>
+          <div class="hint">{{ focus_today.sessions }} focus sessions, {{ focus_today.minutes }} min today</div>
+        </div>
+      </div>
+      <div class="progress" aria-hidden="true"><i style="width:{{ stats.pct }}%"></i></div>
+      <div class="btn-row">
+        <a class="btn small" href="{% url 'main:focus' %}" style="text-decoration:none">Start focusing</a>
+        <a class="btn ghost small" href="?status=today" style="text-decoration:none">Due today</a>
+      </div>
+      <div class="foot-row" style="margin-top:10px">
+        <a class="quiet" href="{% url 'main:export_csv' %}" style="text-decoration:none">Export tasks (CSV)</a>
+      </div>
+    </section>
+
+    <section class="card card-pad">
+      <div class="row-between">
+        <h2>Sprint</h2>
+        <form method="get" class="cap-form">
+          {% if filters.q %}<input type="hidden" name="q" value="{{ filters.q }}" />{% endif %}
+          <input type="hidden" name="status" value="{{ filters.status }}" />
+          <input type="hidden" name="sort" value="{{ filters.sort }}" />
+          {% if filters.course %}<input type="hidden" name="course" value="{{ filters.course }}" />{% endif %}
+          <select id="cap" name="capacity" onchange="this.form.submit()" aria-label="Sprint capacity">
+            {% for p in fib_points %}<option value="{{ p }}" {% if sprint.capacity == p %}selected{% endif %}>{{ p }} pts</option>{% endfor %}
+          </select>
+        </form>
+      </div>
+      <div class="bignum" style="margin-top:8px">{{ sprint.total }}<span class="hint"> / {{ sprint.capacity }} pts</span></div>
+      <div class="progress" aria-hidden="true"><i style="width:{{ sprint.load }}%"></i></div>
+      <p class="hint" style="margin:8px 0 0">{{ sprint.done_pts }} of {{ sprint.total }} pts done</p>
+      <div class="btn-row">
+        <form method="post" action="{% url 'main:auto_plan' %}">{% csrf_token %}<button class="btn small" type="submit">Auto-plan</button></form>
+      </div>
+      <details class="opts" style="margin-top:12px">
+        <summary>Points guide for students</summary>
+        <ul class="guide">
+          {% for pts, info in estimate_guide.items %}
+          <li><b>{{ pts }}</b> {{ info.0 }}: {{ info.1 }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+    </section>
+  </aside>
 </div>
-{% endif %}
+
+<script>
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+    e.preventDefault(); document.querySelector('#searchForm input[name=q]').focus();
+  }
+});
+</script>
 {% endblock %}

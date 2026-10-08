@@ -1,0 +1,20 @@
+# Render deploy for FiboTask (free web service + ephemeral SQLite).
+# Push to GitHub, then: dashboard.render.com → New → Blueprint → pick this repo.
+# After first deploy, set a custom ALLOWED_HOSTS if you add a custom domain.
+services:
+  - type: web
+    name: fibotask
+    runtime: python
+    buildCommand: "pip install -r FiboTask/requirements.txt && python FiboTask/manage.py collectstatic --noinput && python FiboTask/manage.py migrate --noinput"
+    startCommand: "gunicorn FiboTask.wsgi:application --chdir FiboTask --workers 2 --timeout 60"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: false
+      - key: ALLOWED_HOSTS
+        value: .onrender.com
+      - key: FIBONACCI_MAX_TERMS
+        value: 1000

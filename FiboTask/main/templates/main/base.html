@@ -1,24 +1,90 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="FiboTask — tasks sized with Fibonacci, split into steps, finished with focus timers." />
     <title>{% block title %}FiboTask{% endblock %}</title>
     {% load static %}
+    <link rel="icon" type="image/svg+xml" href="{% static 'main/favicon.svg' %}" />
+    <link rel="icon" type="image/x-icon" href="{% static 'main/favicon.ico' %}" />
+    <link rel="apple-touch-icon" href="{% static 'main/apple-touch-icon.png' %}" />
+    <meta name="theme-color" content="#16a34a" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="{% static 'main/style.css' %}" />
+    <script src="{% static 'main/app.js' %}" defer></script>
   </head>
   <body>
-    <nav class="nav">
-      <a href="{% url 'main:index' %}">To-Do List</a>
-      <a href="{% url 'main:fibonacci' %}">Fibonacci Generator</a>
-    </nav>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="{% url 'main:index' %}" aria-label="FiboTask home">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <span class="brand-text">FiboTask <em>pro</em></span>
+        </a>
+        <nav class="tabs" aria-label="Primary">
+          {% with url_name=request.resolver_match.url_name %}
+          <a href="{% url 'main:index' %}" class="{% if url_name == 'index' %}active{% endif %}">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Tasks
+          </a>
+          <a href="{% url 'main:focus' %}" class="{% if url_name == 'focus' or url_name == 'focus_log' %}active{% endif %}">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M10 6.5V10l2.5 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            Focus
+          </a>
+          <a href="{% url 'main:fibonacci' %}" class="{% if url_name == 'fibonacci' %}active{% endif %}">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M3 17V9m4 8V5m4 12v-6m4 6V3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            Lab
+          </a>
+          <a href="{% url 'main:guide' %}" class="{% if url_name == 'guide' %}active{% endif %}">
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 4h12v12H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 8h6M7 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            Guide
+          </a>
+          {% endwith %}
+        </nav>
+        <div class="top-actions">
+          <button id="themeToggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle theme">
+            <svg class="ic-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M15.5 12.5A6.5 6.5 0 0 1 7.5 4.5a.7.7 0 0 0-.9-.9A8 8 0 1 0 16.4 13.4a.7.7 0 0 0-.9-.9Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <svg class="ic-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
     {% if messages %}
-    <ul class="messages">
+    <div class="toasts" aria-live="polite" aria-atomic="true">
       {% for message in messages %}
-      <li class="{{ message.tags }}">{{ message }}</li>
+      <div class="toast {{ message.tags }}" role="status">
+        <span class="toast-dot" aria-hidden="true"></span>
+        <span>{{ message }}</span>
+        <button class="toast-x" type="button" aria-label="Dismiss"><svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      </div>
       {% endfor %}
-    </ul>
+    </div>
     {% endif %}
-    <div class="container">{% block content %}{% endblock %}</div>
+
+    <main id="main" class="shell">{% block content %}{% endblock %}</main>
+
+    <footer class="foot">
+      <span>Size it, split it, start it</span>
+      <span class="foot-right"><a href="{% url 'main:welcome' %}">About</a><a href="{% url 'main:guide' %}">Guide</a></span>
+    </footer>
+
+    <div class="modal-veil" id="confirmVeil" hidden>
+      <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMsg">
+        <h2 id="confirmTitle">Are you sure?</h2>
+        <p class="sub" id="confirmMsg"></p>
+        <div class="btn-row modal-actions">
+          <button class="btn ghost" id="confirmCancel" type="button">Keep it</button>
+          <button class="btn danger" id="confirmGo" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

@@ -1,0 +1,73 @@
+{% extends "main/base.html" %}
+{% block title %}Focus · FiboTask{% endblock %}
+{% block content %}
+<div class="grid2">
+  <section class="card card-pad">
+    <h1>Focus</h1>
+    <p class="sub">{% if active_task %}Working on <b>{{ active_task.title }}</b>{% else %}Pick a task, or warm up with no task.{% endif %} Today: {{ today.sessions }} session{{ today.sessions|pluralize }}, {{ today.minutes }} min. This week: {{ week.sessions }} sessions, {{ week.minutes }} min.</p>
+
+    <form method="get" class="focus-pick">
+      <select name="task" onchange="this.form.submit()" aria-label="Focus task">
+        <option value="0">Warm-up (no task)</option>
+        {% for t in open_tasks %}
+        <option value="{{ t.id }}" {% if t.id == active_task_id %}selected{% endif %}>{% if t.estimate %}{{ t.estimate }} pts: {% endif %}{{ t.title|truncatechars:48 }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="minutes" value="{{ minutes }}" />
+    </form>
+
+    <div class="clock" id="focusClock" data-seconds="{{ seconds }}" role="timer" aria-live="off">--:--</div>
+    <div class="progress" aria-hidden="true"><i id="focusBar" style="width:0%"></i></div>
+
+    <div class="seg" role="tablist" aria-label="Minutes" style="margin-top:12px">
+      {% for p in presets %}
+      <a href="?minutes={{ p }}{% if active_task_id %}&task={{ active_task_id }}{% endif %}" class="{% if minutes == p %}active{% endif %}">{{ p }}m</a>
+      {% endfor %}
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="focusStart" type="button">Start {{ minutes }} min</button>
+      <button class="btn ghost" id="focusPause" type="button" disabled>Pause</button>
+      <button class="btn ghost" id="focusReset" type="button">Reset</button>
+    </div>
+
+    <details class="opts" style="margin-top:10px">
+      <summary>Why 13 minutes?</summary>
+      <p class="sub">1, 2, 3 and 5 warm you up (11 minutes total). 13 is the first rung that needs real focus, short enough to start, long enough to matter. It pairs with a 5 minute break. <a href="{% url 'main:guide' %}#focus">Full method</a></p>
+    </details>
+
+    <form method="post" action="{% url 'main:focus_log' %}" id="focusLogForm" style="margin-top:12px">
+      {% csrf_token %}
+      <input type="hidden" name="minutes" id="focusLogMinutes" value="{{ minutes }}" />
+      <input type="hidden" name="task" value="{{ active_task_id }}" />
+      <button class="btn ghost small" id="focusLogBtn" type="submit" disabled>Log {{ minutes }} min{% if active_task %} on “{{ active_task.title|truncatechars:32 }}”{% endif %}</button>
+      <span class="hint" id="focusMsg">Work at least a minute, then log what you did. Suggested break after {{ minutes }} min: {{ break_minutes }} min.</span>
+    </form>
+  </section>
+
+  <aside class="side">
+    <section class="card card-pad">
+      <h2>Can't start? Climb the ladder</h2>
+      <ol class="ladder">
+        <li><a href="?minutes=1{% if active_task_id %}&task={{ active_task_id }}{% endif %}"><b>1 min:</b> clear desk, close tabs</a></li>
+        <li><a href="?minutes=2{% if active_task_id %}&task={{ active_task_id }}{% endif %}"><b>2 min:</b> open tools, write the title</a></li>
+        <li><a href="?minutes=3{% if active_task_id %}&task={{ active_task_id }}{% endif %}"><b>3 min:</b> triage, outline, one small step</a></li>
+        <li><a href="?minutes=5{% if active_task_id %}&task={{ active_task_id }}{% endif %}"><b>5 min:</b> rough draft, no judging</a></li>
+        <li><b>13+ min:</b> momentum carries you into deep work</li>
+      </ol>
+    </section>
+    <section class="card card-pad">
+      <h2>Recent focus</h2>
+      {% if recent %}
+      <ul class="recent">
+        {% for s in recent %}
+        <li><b>{{ s.minutes }}m</b> {% if s.task %}{{ s.task.title|truncatechars:40 }}{% else %}Warm-up{% endif %} <span class="hint">({{ s.created_at|timesince }} ago)</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="sub">No sessions yet. A 1-minute warm-up counts.</p>
+      {% endif %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

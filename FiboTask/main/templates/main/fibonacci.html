@@ -1,17 +1,70 @@
 {% extends "main/base.html" %}
-{% block title %}Fibonacci Generator — FiboTask{% endblock %}
+{% block title %}Fibonacci Lab, FiboTask{% endblock %}
 {% block content %}
-<h2>Fibonacci Generator</h2>
-<form method="get">
-  {{ form.n }}
-  <button type="submit">Generate</button>
-  {% if form.n.errors %}<p style="color:red">{{ form.n.errors.0 }}</p>{% endif %}
-</form>
-<p style="color:#666;font-size:13px">Enter 1–{{ max_terms }} terms.</p>
-{% if series %}
-<div class="result-box">
-  <strong>Result for {{ n }} terms:</strong>
-  <p class="series-text">{{ series|join:", " }}</p>
+<div class="grid2">
+  <section class="card card-pad">
+    <h1>Fibonacci Lab</h1>
+    <p class="sub">The same numbers you use for task points.</p>
+
+    <form method="get" class="fib-controls">
+      <div>
+        <label class="lbl" for="id_n">Terms</label>
+        {{ form.n }}
+        <input type="range" id="nRange" min="1" max="{{ max_terms }}" value="{{ n|default:10 }}" aria-label="Terms slider" style="margin-top:10px" />
+        {% if form.n.errors %}<p class="field-err">{{ form.n.errors.0 }}</p>{% endif %}
+      </div>
+      <button class="btn" type="submit">Generate</button>
+    </form>
+
+    <h2 style="margin-top:20px">Estimate a task</h2>
+    <div class="seg" style="margin-top:10px" role="tablist" aria-label="Estimate points">
+      {% for p in fib_points %}
+      <a href="?{% if n %}n={{ n }}&{% endif %}points={{ p }}" class="{% if sel_points == p %}active{% endif %}">{{ p }}</a>
+      {% endfor %}
+    </div>
+    <form method="post" action="{% url 'main:lab_create_task' %}" class="add-form">
+      {% csrf_token %}
+      <input type="hidden" name="estimate" value="{{ sel_points }}" />
+      <div class="add-main">
+        <input type="text" name="title" maxlength="255" required placeholder="Task name…" aria-label="Task title" />
+        <button class="btn" type="submit">{{ sel_points }} pts</button>
+      </div>
+    </form>
+    <details class="opts" style="margin-top:14px">
+      <summary>What do the numbers mean?</summary>
+      <ul class="guide">
+        {% for pts, info in estimate_guide.items %}
+        <li><b>{{ pts }}</b> {{ info.0 }}: {{ info.1 }}</li>
+        {% endfor %}
+      </ul>
+      <p class="sub">Rule of 8: never keep 8+ on today's list. Split it into steps on the Tasks page first.</p>
+    </details>
+  </section>
+
+  <section class="card card-pad">
+    <h2>{% if series %}{{ n }} terms{% else %}Preview{% endif %}</h2>
+    {% if stats %}
+    <div class="stat-grid stat-3">
+      <div class="fstat"><span>Last term</span><b class="mono">{{ stats.last }}</b></div>
+      <div class="fstat"><span>Golden ratio</span><b class="mono">{% if stats.ratio %}{{ stats.ratio|floatformat:4 }}{% else %}—{% endif %}</b></div>
+      <div class="fstat"><span>Sum</span><b class="mono">{{ stats.sum }}</b></div>
+    </div>
+    <div class="chart" role="img" aria-label="Bar chart of {{ stats.count }} Fibonacci terms">
+      {% for b in bars %}<div class="bar {% if b.even %}even{% else %}odd{% endif %}" style="height:{{ b.h }}%" data-v="F{{ b.i }}={{ b.v }}" title="F{{ b.i }} = {{ b.v }}"></div>{% endfor %}
+    </div>
+    <details class="opts" style="margin-top:12px">
+      <summary>Full sequence and export options</summary>
+      <div class="toolbar-row">
+        <button class="btn ghost small" id="copyBtn" type="button">Copy</button>
+        <button class="btn ghost small" id="csvBtn" type="button">CSV</button>
+        <button class="btn ghost small" id="jsonBtn" type="button">JSON</button>
+      </div>
+      <div class="series" id="seriesText" data-raw="{{ series|join:',' }}">{{ series|join:", " }}</div>
+    </details>
+    {% else %}
+    <p class="sub" style="margin-top:10px">Pick a term count and press Generate. The chart shows how the sequence grows, the same curve your estimates follow.</p>
+    <div class="series">0, 1, 1, 2, 3, 5, 8, 13, 21, 34 …</div>
+    {% endif %}
+  </section>
 </div>
-{% endif %}
 {% endblock %}

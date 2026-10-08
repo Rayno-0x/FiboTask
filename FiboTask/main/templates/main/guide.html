@@ -1,0 +1,74 @@
+{% extends "main/base.html" %}
+{% block title %}Guide: how to use FiboTask{% endblock %}
+{% block content %}
+<section class="card card-pad guide-hero">
+  <span class="kicker">3 minute guide</span>
+  <h1 class="display" style="font-size:clamp(28px,4vw,42px)">Use FiboTask in <span class="grad">three loops</span></h1>
+  <p class="lede">Size the work, split the scary parts, start with a tiny timer. Everything below maps to a button you will actually see.</p>
+  <div class="cta-row">
+    <a class="btn" href="{% url 'main:index' %}" style="text-decoration:none">Open Tasks</a>
+    <a class="btn ghost" href="{% url 'main:focus' %}" style="text-decoration:none">Open Focus room</a>
+  </div>
+</section>
+
+<div class="doc-grid" style="margin-top:18px">
+  <nav class="doc-nav" aria-label="Guide sections">
+    <a href="#estimate">1. Estimate</a>
+    <a href="#split">2. Split</a>
+    <a href="#sprint">3. Sprint</a>
+    <a href="#focus">4. Focus</a>
+    <a href="#dates">5. Dates</a>
+    <a href="#faq">FAQ</a>
+  </nav>
+
+  <div class="doc" style="display:grid;gap:18px">
+    <section class="card card-pad" id="estimate">
+      <h3>1. Estimate with points, not hours</h3>
+      <p>Pick a <b>baseline</b> you know well. Example: reviewing 5 flashcards is your <b>2</b>. New work gets sized <b>relative</b> to it: easier is a 1, a bit harder is a 3 or 5, unknown steps jump to 8. Hours lie, comparisons do not.</p>
+      <table>
+        <tr><th>Points</th><th>Feels like</th><th>Student example</th></tr>
+        {% for pts, info in estimate_guide.items %}
+        <tr><td data-label="Points">{{ pts }}</td><td data-label="Feels like">{{ info.0 }}</td><td data-label="Example">{{ info.1 }}</td></tr>
+        {% endfor %}
+      </table>
+      <p><b>Where to tap:</b> Tasks page, open <i>Course, priority, points, due date</i>, then the points dropdown. Or Lab, <i>Estimate a task</i>.</p>
+    </section>
+
+    <section class="card card-pad" id="split">
+      <h3>2. Split anything 8 or higher</h3>
+      <p><b>Rule of 8:</b> an 8 never sits on today's list. Open its <i>Steps</i> box and add the first <b>2 minute</b> move (open the doc, write the title). The app nudges you until steps exist.</p>
+      <p><b>Where to tap:</b> each task, <i>Steps</i>, then <i>Add step</i>. Tick steps off as you focus.</p>
+    </section>
+
+    <section class="card card-pad" id="sprint">
+      <h3>3. Plan a sprint you can finish</h3>
+      <p>Tap the <b>bolt icon</b> on a few tasks, or <b>Auto-plan</b> to fill by priority inside your <b>capacity</b> (default <b>21 pts</b>, about one big week). Over capacity? Drop something or split a 13.</p>
+      <p><b>Where to tap:</b> Tasks sidebar, <i>Sprint</i> card. Filter with the <i>Sprint</i> tab to see only this week's work.</p>
+    </section>
+
+    <section class="card card-pad" id="focus">
+      <h3>4. Start with the 1 to 13 ladder</h3>
+      <p>Procrastinating? Do not "start the essay". Start <b>1 minute:</b> clear desk. Then <b>2:</b> open tools. <b>3:</b> outline. <b>5:</b> ugly draft. Momentum carries you into <b>13, 21 or 34</b> minute deep work.</p>
+      <p><b>Why 13?</b> 1, 2, 3 and 5 add up to 11 minutes of warm-up. 13 is the first rung that needs real focus: short enough to start, long enough to matter. It pairs with a 5 minute break.</p>
+      <p><b>Presets (min):</b> {% for p in focus_presets %}<span class="chip">{{ p }}</span> {% endfor %}</p>
+      <p><b>Breaks:</b> up to 3 min work rests 1, up to 8 rests 3, up to 21 rests 5, and 34 rests 8. Log sessions from the timer. Today totals live on the Tasks sidebar.</p>
+      <p><b>Where to tap:</b> Focus room, or the clock icon on any task for a 13 min block on it.</p>
+    </section>
+
+    <section class="card card-pad" id="dates">
+      <h3>5. Due dates without guilt</h3>
+      <p>Set a <b>course and due date</b> per task. Overdue items offer <b>Fibonacci snooze</b> ({% for s in snooze_steps %}+{{ s }}d{% if not forloop.last %}, {% endif %}{% endfor %}) instead of a vague "later". The step size keeps rescheduling honest. Filter by course chips or the <i>Today</i> tab.</p>
+    </section>
+
+    <section class="card card-pad faq" id="faq">
+      <h3>FAQ</h3>
+      <details open><summary>Why do the gaps widen (5 to 8 to 13)?</summary><p>Because big work is uncertain. Forcing a choice between 8 and 13 surfaces hidden complexity that 8, 9, 10 would let you ignore.</p></details>
+      <details><summary>Why 13 minutes and not 25?</summary><p>25 minute Pomodoros fail at the starting line for procrastinators. 13 follows an 11 minute warm-up ladder, so resistance is already gone when deep work begins. Graduate to 21 and 34 when 13 feels easy.</p></details>
+      <details><summary>What if everything feels like a 13?</summary><p>Your baseline is off. Pick a smaller 2 you do weekly, re-size everything against it, and split the 13s before they touch today.</p></details>
+      <details><summary>Can I change sprint capacity?</summary><p>Yes, in the Sprint card dropdown (1 to 21). Start at 21, lower it if you keep overflowing.</p></details>
+      <details><summary>New here? Don't start blank.</summary><p>On an empty list, press <b>Load 3 sample tasks</b>: a 5-pointer with steps, a 3, and a 1-point warm-up. Delete them whenever. Your data is yours: <b>Export tasks (CSV)</b> sits under the Today card.</p></details>
+      <details><summary>Do I need an account?</summary><p>No. This build keeps everything local-first so you can start in seconds.</p></details>
+    </section>
+  </div>
+</div>
+{% endblock %}

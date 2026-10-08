@@ -1,0 +1,72 @@
+{% extends "main/base.html" %}
+{% block title %}FiboTask — homework, but smaller{% endblock %}
+{% block content %}
+<div class="landing">
+  <section class="card hero-land story-hero">
+    <span class="blob b1" aria-hidden="true"></span>
+    <span class="blob b2" aria-hidden="true"></span>
+    <div class="story-bg" aria-hidden="true">
+      <i class="bg-chip c1">1</i><i class="bg-chip c2">2</i><i class="bg-chip c3">3</i>
+      <i class="bg-chip c4">5</i><i class="bg-chip c5">8</i><i class="bg-chip c6">13</i>
+      <i class="bg-chip c7">21</i><i class="bg-chip c8">✓</i><i class="bg-chip c9">13:00</i>
+    </div>
+    <div class="hero-copy">
+      <h1 class="display">Homework,<br />but <span class="grad">smaller.</span></h1>
+      <p class="lede">Point it, split it, focus for 13 minutes.</p>
+      <div class="cta-row">
+        <a class="btn big" href="{% url 'main:index' %}" style="text-decoration:none">Start now</a>
+        <a class="quiet-link" href="{% url 'main:guide' %}">how it works</a>
+      </div>
+    </div>
+    <div class="story-stage" id="storyStage" data-act="1" role="img" aria-label="Looping story: a pile of overdue assignments gets sized into points, split into small steps, then finished with a 13-minute focus timer.">
+      <p class="story-cap">
+        <span class="cap cap1"><b>Sunday night:</b> everything is due</span>
+        <span class="cap cap2"><b>Step 1.</b> Scary? Size it (13 pts)</span>
+        <span class="cap cap3"><b>Step 2.</b> Too big? Split it into steps</span>
+        <span class="cap cap4"><b>Step 3.</b> Stuck? Start a 13 min focus</span>
+      </p>
+      <div class="story-acts">
+        <div class="act act-chaos" aria-hidden="true">
+          <div class="pile">
+            <div class="big-task small p1">Term paper<span class="pill over">overdue</span></div>
+            <div class="big-task small p2">Bio exam<span class="pill over">overdue</span></div>
+            <div class="big-task small p3">Lab report<span class="pill due">tomorrow</span></div>
+          </div>
+        </div>
+        <div class="act act-size" aria-hidden="true">
+          <div class="big-task">Term paper</div>
+          <div class="pts-row">
+            <i>1</i><i>2</i><i>3</i><i>5</i><i>8</i><i class="pick">13</i><i>21</i>
+          </div>
+          <div class="stamp">13 pts</div>
+        </div>
+        <div class="act act-split" aria-hidden="true">
+          <div class="step s1"><b>3</b> Outline</div>
+          <div class="step s2"><b>5</b> Rough draft</div>
+          <div class="step s3"><b>2</b> Edit &amp; submit</div>
+          <div class="split-tag">8+ → split me</div>
+        </div>
+        <div class="act act-start" aria-hidden="true">
+          <svg class="ring-svg" viewBox="0 0 120 120">
+            <circle class="ring-bg" cx="60" cy="60" r="52" />
+            <circle class="ring-fg" id="storyRing" cx="60" cy="60" r="52" />
+          </svg>
+          <div class="story-clock" id="storyClock">13:00</div>
+          <div class="story-task">Rough draft (5 pts)</div>
+          <div class="story-done" id="storyDone">✓</div>
+          <div class="speed-tag">Sped-up demo</div>
+        </div>
+      </div>
+      <div class="story-dots" aria-hidden="true"><i class="d1 on"></i><i class="d2"></i><i class="d3"></i><i class="d4"></i></div>
+    </div>
+  </section>
+
+  <nav class="mini-steps" aria-label="How it works">
+    <a href="{% url 'main:fibonacci' %}"><b>Size</b><span>1–21 pts</span></a>
+    <span class="arrow" aria-hidden="true">→</span>
+    <a href="{% url 'main:index' %}"><b>Split</b><span>8+ into steps</span></a>
+    <span class="arrow" aria-hidden="true">→</span>
+    <a href="{% url 'main:focus' %}"><b>Start</b><span>1→13 min</span></a>
+  </nav>
+</div>
+{% endblock %}
