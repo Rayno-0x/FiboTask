@@ -1,11 +1,14 @@
 from django.urls import path
+from django.views.generic.base import RedirectView
 
 from . import views
 
 app_name = "main"
 
 urlpatterns = [
-    path("", views.index, name="index"),
+    path("", views.welcome_view, name="welcome"),
+    path("welcome/", RedirectView.as_view(url="/", permanent=False)),
+    path("tasks/", views.index, name="index"),
     path("edit/<int:pk>/", views.edit_task, name="edit_task"),
     path("complete/<int:pk>/", views.complete_task, name="complete_task"),
     path("delete/<int:pk>/", views.delete_task, name="delete_task"),
@@ -21,7 +24,6 @@ urlpatterns = [
     path("subtasks/<int:pk>/delete/", views.subtask_delete, name="subtask_delete"),
     path("focus/", views.focus_view, name="focus"),
     path("focus/log/", views.focus_log, name="focus_log"),
-    path("welcome/", views.welcome_view, name="welcome"),
     path("guide/", views.guide_view, name="guide"),
     path("fibonacci/create-task/", views.lab_create_task, name="lab_create_task"),
     path("fibonacci/", views.fibonacci_view, name="fibonacci"),

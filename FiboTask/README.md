@@ -21,15 +21,15 @@ copy .env.example .env   # edit SECRET_KEY / DATABASE_URL as needed
 python manage.py migrate
 python manage.py runserver
 ```
-Open http://127.0.0.1:8000/ · http://127.0.0.1:8000/focus/ · http://127.0.0.1:8000/fibonacci/.
+Open http://127.0.0.1:8000/ (landing) · http://127.0.0.1:8000/tasks/ (app) · http://127.0.0.1:8000/focus/ · http://127.0.0.1:8000/fibonacci/.
 
-New? Start at http://127.0.0.1:8000/welcome/ (animated one-look intro) then http://127.0.0.1:8000/guide/ (3-minute docs).
+New? Start at http://127.0.0.1:8000/ (animated one-look intro) then http://127.0.0.1:8000/guide/ (3-minute docs).
 
 ## Deploy (Render, free tier)
 1. Push this repo to GitHub (do not commit `.env`, `db.sqlite3`, or `staticfiles/`).
 2. Go to dashboard.render.com → New → Blueprint → select the repo (`render.yaml` is at the root).
 3. Render generates `SECRET_KEY`, sets `DEBUG=false`, and runs collectstatic + migrate on every deploy.
-4. Open `https://<your-name>.onrender.com/welcome/`. First boot is slow on the free tier (it sleeps when idle).
+4. Open `https://<your-name>.onrender.com/` (landing first) and `/tasks/` (the app). First boot is slow on the free tier (it sleeps when idle).
 
 Know before you share the link:
 - The free service uses **ephemeral SQLite**: all visitors share one list, and restarts wipe it. Fine for a demo, not for real use. Postgres + accounts is the next milestone.

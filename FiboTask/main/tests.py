@@ -234,6 +234,13 @@ class LandingGuideTests(TestCase):
         self.assertContains(resp, reverse("main:guide"))
         self.assertContains(resp, reverse("main:focus"))
 
+    def test_root_is_landing_and_old_url_redirects(self):
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Homework,")
+        resp = self.client.get("/welcome/")
+        self.assertRedirects(resp, "/")
+
     def test_prod_refuses_dev_secret_key(self):
         """Booting with DEBUG off and no SECRET_KEY must fail loudly."""
         import os
