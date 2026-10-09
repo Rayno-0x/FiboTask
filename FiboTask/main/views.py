@@ -12,8 +12,6 @@ from .utils import fibonacci_series
 VALID_STATUS = {"all", "active", "done", "overdue", "sprint", "today"}
 VALID_SORT = {"newest", "oldest", "due", "priority", "title", "points"}
 
-SIZE_LABEL = {1: "XS · trivial", 2: "S · small", 3: "S+ · clear", 5: "M · medium", 8: "L · large", 13: "XL · epic?", 21: "XXL · break down"}
-
 
 def _today_focus() -> dict:
     from django.utils import timezone
@@ -205,12 +203,10 @@ def index(request):
             "stats": {"total": total, "done": done, "active": active, "pct": pct},
             "sprint": _sprint_stats(capacity),
             "fib_points": Task.FIB_POINTS,
-            "size_label": SIZE_LABEL,
             "estimate_guide": Task.ESTIMATE_GUIDE,
             "courses": courses,
             "focus_today": _today_focus(),
             "open_id": open_id,
-            "subtask_form": SubtaskForm(),
             "editing_id": int(editing_id) if editing_id else None,
             "edit_form": edit_form,
         },
@@ -587,7 +583,6 @@ def fibonacci_view(request):
             "max_terms": max_terms,
             "fib_points": Task.FIB_POINTS,
             "sel_points": sel_points,
-            "size_label": SIZE_LABEL,
             "estimate_guide": Task.ESTIMATE_GUIDE,
         },
     )

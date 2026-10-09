@@ -91,11 +91,11 @@
             <span class="dot dot-{{ task.priority|lower }}" title="{{ task.get_priority_display }} priority"></span>
           </div>
           {% if task.notes %}<p class="t-note">{{ task.notes|linebreaksbr }}</p>{% endif %}
-          {% if task.needs_split and task.subtasks.count == 0 and not task.completed %}
+          {% if task.needs_split and task.subtasks.all|length == 0 and not task.completed %}
           <p class="split-hint">{{ task.estimate }} pts is too big for one go, <a href="?open={{ task.id }}{% if base_qs %}{{ base_qs }}{% endif %}">split it into steps</a>.</p>
           {% endif %}
           <details class="steps-box" {% if open_id == task.id %}open{% endif %}>
-            <summary>Steps ({{ task.subtasks.all|length }} total){% if task.subtasks.all %} . tick them off{% endif %}</summary>
+            <summary>Steps ({{ task.subtasks.all|length }} total){% if task.subtasks.all %}, tick them off{% endif %}</summary>
             <ul class="subs">
               {% for s in task.subtasks.all %}
               <li class="{% if s.completed %}done{% endif %}">
@@ -104,7 +104,7 @@
                 <form method="post" action="{% url 'main:subtask_delete' s.id %}">{% csrf_token %}<button class="quiet" type="submit" aria-label="Remove step"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></form>
               </li>
               {% empty %}
-              <li class="hint">No steps yet. Add the first tiny one . 2 minutes max.</li>
+              <li class="hint">No steps yet. Add the first tiny one, 2 minutes max.</li>
               {% endfor %}
             </ul>
             {% if not task.completed %}
@@ -122,13 +122,13 @@
             {{ edit_form.notes }}
             <div style="display:flex;gap:8px">
               <button class="btn small" type="submit">Save</button>
-              <a class="btn ghost small" href="{% url 'main:index' %}">Cancel</a>
+              <a class="btn ghost small" href="{% url 'main:index' %}?{{ base_qs|slice:'1:' }}">Cancel</a>
             </div>
           </form>
           {% endif %}
           {% if task.is_overdue and not task.completed %}
           <details class="snooze">
-            <summary>Overdue . snooze?</summary>
+            <summary>Overdue? Snooze:</summary>
             <div class="snooze-row">
               <form method="post" action="{% url 'main:snooze_task' task.id %}">{% csrf_token %}<input type="hidden" name="days" value="1" /><button class="mini" type="submit">+1 day</button></form>
               <form method="post" action="{% url 'main:snooze_task' task.id %}">{% csrf_token %}<input type="hidden" name="days" value="3" /><button class="mini" type="submit">+3 days</button></form>
@@ -155,7 +155,7 @@
         </div>
       </li>
       {% empty %}
-      <div class="empty">
+      <li class="empty">
         <svg class="empty-art" viewBox="0 0 64 64" width="56" height="56" aria-hidden="true"><circle cx="32" cy="32" r="25" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="7 6" opacity=".45"/><path d="M23 32.5l6.5 6.5L41.5 26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         {% if filters.q or filters.status != 'all' or filters.course %}
           <p><b>Nothing here.</b><br /><a href="{% url 'main:index' %}">Show everything</a></p>
@@ -172,7 +172,7 @@
             <button class="btn ghost small" type="submit">Load 3 sample tasks</button>
           </form>
         {% endif %}
-      </div>
+      </li>
       {% endfor %}
     </ul>
 
