@@ -44,6 +44,14 @@ Know before you share the link:
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated |
 | `DATABASE_URL` | `sqlite:///db.sqlite3` | e.g. `postgres://postgres:1010@localhost:5432/todo_db` |
 | `FIBONACCI_MAX_TERMS` | `1000` | DoS cap for `?n=` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | empty (button hidden) | Google sign-in; get from Google Cloud Console → Credentials → OAuth client ID |
+
+## Phase 1 identity (accounts + calibration dataset)
+- Email/username + password auth today; Google sign-in lights up once the two env vars above are set.
+- Every task, focus session, estimate record, and signal belongs to an `owner`; cross-user access is 404, covered by isolation tests.
+- `Organization` exists as a nullable field on profiles (campus sales later, no rewrite).
+- Completing a task writes an `EstimateRecord` (sized vs actual focus minutes); focus/snooze/split/complete/reopen/estimate actions append `SignalEvent` rows. The future engine reads these two tables, never raw app tables.
+- Legacy pre-auth rows have null owners and are invisible to everyone (demo data, safe to ignore).
 
 ## Notes for reviewers
 - Mutating actions (tasks, subtasks, sprint, snooze, focus-log, lab-create, seed) are POST-only with CSRF.
@@ -53,5 +61,5 @@ Know before you share the link:
 - First-run: POST `samples/` seeds 3 guided tasks (empty list only). Portability: GET `export/` downloads tasks CSV.
 - Lab estimator (`?points=`) POSTs to `fibonacci/create-task/`; sequence capped by `FIBONACCI_MAX_TERMS`.
 - SQLite locally, Postgres in prod via `DATABASE_URL` (12-factor).
-- Run checks: `python manage.py test` (32 tests) and `python manage.py check --deploy`.
+- Run checks: `python manage.py test` (44 tests) and `python manage.py check --deploy`.
 ```

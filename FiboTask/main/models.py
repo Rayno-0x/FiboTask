@@ -1,6 +1,31 @@
+from django.conf import settings
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
+
+
+class Organization(models.Model):
+    """Campus / team container. Nullable everywhere — paid feature, day-one field."""
+
+    name = models.CharField(max_length=120)
+    slug = models.SlugField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class Profile(models.Model):
+    """Per-user settings. Auto-created on signup."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    organization = models.ForeignKey(
+        Organization, null=True, blank=True, on_delete=models.SET_NULL, related_name="members"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Profile({self.user})"
 
 
 class Task(models.Model):
@@ -29,6 +54,14 @@ class Task(models.Model):
         max_length=255,
         validators=[MinLengthValidator(1)],
     )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="tasks",
+        help_text="Null only for pre-auth legacy rows.",
+    )
     notes = models.TextField(blank=True, default="")
     course = models.CharField(max_length=60, blank=True, default="", help_text="Subject, e.g. Bio 101")
     priority = models.CharField(
@@ -51,6 +84,7 @@ class Task(models.Model):
             models.Index(fields=["in_sprint"]),
             models.Index(fields=["estimate"]),
             models.Index(fields=["course"]),
+            models.Index(fields=["owner", "completed"]),
         ]
 
     def __str__(self):
@@ -96,12 +130,15 @@ class FocusSession(models.Model):
     task = models.ForeignKey(
         Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="focus_sessions"
     )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="focus_sessions"
+    )
     minutes = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["-created_at"])]
+        indexes = [models.Index(fields=["-created_at"]), models.Index(fields=["owner", "-created_at"])]
 
     def __str__(self):
         label = self.task.title if self.task else "Warm-up"
@@ -116,3 +153,71 @@ class FocusSession(models.Model):
         if work_minutes <= 21:
             return 5
         return 8
+
+
+class EstimateRecord(models.Model):
+    """Calibration dataset: what a task was sized at vs what it cost.
+
+    Written on completion (and backfilled once for legacy rows). The future
+    engine reads these — never raw tables — to learn personal min-per-point.
+    """
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="estimate_records"
+    )
+    task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="estimate_records")
+    title = models.CharField(max_length=255, default="")
+    estimated = models.IntegerField(null=True, blank=True)
+    actual_minutes = models.IntegerField(default=0)
+    completed = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["owner", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.title or self.task} · est {self.estimated} · {self.actual_minutes}m"
+
+
+class SignalEvent(models.Model):
+    """Append-only behavioral signals for the prediction engine."""
+
+    class Kind(models.TextChoices):
+        FOCUS = "focus", "Focus session"
+        SNOOZE = "snooze", "Snoozed"
+        SPLIT = "split", "Split added"
+        COMPLETE = "complete", "Completed"
+        ESTIMATE = "estimate", "Estimated"
+        REOPEN = "reopen", "Reopened"
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="signal_events"
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    task = models.ForeignKey(Task, null=True, blank=True, on_delete=models.SET_NULL, related_name="signal_events")
+    minutes = models.IntegerField(null=True, blank=True)
+    meta = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["owner", "kind", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.kind} · {self.task or '-'}"
+
+    @classmethod
+    def log(cls, owner, kind, task=None, minutes=None, **meta):
+        return cls.objects.create(owner=owner, kind=kind, task=task, minutes=minutes, meta=meta or {})
+
+
+from django.contrib.auth import get_user_model  # noqa: E402
+from django.db.models.signals import post_save  # noqa: E402
+from django.dispatch import receiver  # noqa: E402
+
+
+@receiver(post_save, sender=get_user_model())
+def _ensure_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.get_or_create(user=instance)

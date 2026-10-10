@@ -49,6 +49,16 @@
           {% endwith %}
         </nav>
         <div class="top-actions">
+          {% if user.is_authenticated %}
+          <span class="user-chip" title="{{ user.email|default:user.username }}">{{ user.username }}</span>
+          <form method="post" action="{% url 'account_logout' %}">
+            {% csrf_token %}
+            <button class="btn ghost small" type="submit">Log out</button>
+          </form>
+          {% else %}
+          <a class="btn ghost small" href="{% url 'account_login' %}" style="text-decoration:none">Log in</a>
+          <a class="btn small" href="{% url 'account_signup' %}" style="text-decoration:none">Sign up</a>
+          {% endif %}
           <button id="themeToggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle theme">
             <svg class="ic-moon" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><path d="M15.5 12.5A6.5 6.5 0 0 1 7.5 4.5a.7.7 0 0 0-.9-.9A8 8 0 1 0 16.4 13.4a.7.7 0 0 0-.9-.9Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
             <svg class="ic-sun" viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><circle cx="10" cy="10" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>

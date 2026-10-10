@@ -14,7 +14,11 @@
       <h1 class="display">Homework,<br />but <span class="grad">smaller.</span></h1>
       <p class="lede">Point it, split it, focus for 13 minutes.</p>
       <div class="cta-row">
-        <a class="btn big" href="{% url 'main:index' %}" style="text-decoration:none">Start now</a>
+        {% if user.is_authenticated %}
+        <a class="btn big" href="{% url 'main:index' %}" style="text-decoration:none">Open my tasks</a>
+        {% else %}
+        <a class="btn big" href="{% url 'account_signup' %}" style="text-decoration:none">Start now</a>
+        {% endif %}
         <a class="quiet-link" href="{% url 'main:guide' %}">how it works</a>
       </div>
     </div>

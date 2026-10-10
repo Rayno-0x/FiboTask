@@ -1,0 +1,16 @@
+{% extends "main/base.html" %}
+{% block title %}Log out, FiboTask{% endblock %}
+{% block content %}
+<section class="card card-pad auth-card">
+  <h1>Log out?</h1>
+  <p class="sub">Your tasks will be right here when you return.</p>
+  <form method="post" action="{% url 'account_logout' %}" class="btn-row" style="margin-top:14px">
+    {% csrf_token %}
+    {% if redirect_field_value %}
+    <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}" />
+    {% endif %}
+    <button class="btn danger" type="submit">Log out</button>
+    <a class="btn ghost" href="{% url 'main:index' %}" style="text-decoration:none">Stay</a>
+  </form>
+</section>
+{% endblock %}

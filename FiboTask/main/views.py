@@ -1,37 +1,38 @@
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Case, Count, Q, Sum, When
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .forms import FibonacciForm, SubtaskForm, TaskForm
-from .models import FocusSession, Subtask, Task
+from .models import EstimateRecord, FocusSession, SignalEvent, Subtask, Task
 from .utils import fibonacci_series
 
 VALID_STATUS = {"all", "active", "done", "overdue", "sprint", "today"}
 VALID_SORT = {"newest", "oldest", "due", "priority", "title", "points"}
 
 
-def _today_focus() -> dict:
+def _today_focus(user) -> dict:
     from django.utils import timezone
 
     today = timezone.localdate()
-    qs = FocusSession.objects.filter(created_at__date=today)
+    qs = FocusSession.objects.filter(owner=user, created_at__date=today)
     return {
         "sessions": qs.count(),
         "minutes": qs.aggregate(s=Sum("minutes"))["s"] or 0,
     }
 
 
-def _week_focus() -> dict:
+def _week_focus(user) -> dict:
     from datetime import timedelta
 
     from django.utils import timezone
 
     today = timezone.localdate()
     monday = today - timedelta(days=today.weekday())
-    qs = FocusSession.objects.filter(created_at__date__gte=monday)
+    qs = FocusSession.objects.filter(owner=user, created_at__date__gte=monday)
     return {
         "sessions": qs.count(),
         "minutes": qs.aggregate(s=Sum("minutes"))["s"] or 0,
@@ -50,8 +51,9 @@ def _capacity(request) -> int:
     return cap
 
 
-def _sprint_stats(capacity: int) -> dict:
-    agg = Task.objects.filter(in_sprint=True).aggregate(
+def _sprint_stats(capacity: int, user) -> dict:
+    base = Task.objects.filter(owner=user)
+    agg = base.filter(in_sprint=True).aggregate(
         count=Count("id"),
         total=Sum("estimate"),
         done=Count("id", filter=Q(completed=True)),
@@ -59,8 +61,8 @@ def _sprint_stats(capacity: int) -> dict:
     )
     total = agg["total"] or 0
     done_pts = agg["done_pts"] or 0
-    velocity = Task.objects.filter(completed=True).aggregate(v=Sum("estimate"))["v"] or 0
-    backlog_pts = Task.objects.filter(completed=False, in_sprint=False).aggregate(v=Sum("estimate"))["v"] or 0
+    velocity = base.filter(completed=True).aggregate(v=Sum("estimate"))["v"] or 0
+    backlog_pts = base.filter(completed=False, in_sprint=False).aggregate(v=Sum("estimate"))["v"] or 0
     pct = round(done_pts / total * 100) if total else 0
     load = round(total / capacity * 100) if capacity else 0
     return {
@@ -78,7 +80,7 @@ def _sprint_stats(capacity: int) -> dict:
 
 
 def _filter_tasks(request):
-    qs = Task.objects.all().prefetch_related("subtasks")
+    qs = Task.objects.filter(owner=request.user).prefetch_related("subtasks")
     q = (request.GET.get("q") or "").strip()
     status = request.GET.get("status", "all")
     sort = request.GET.get("sort", "newest")
@@ -132,6 +134,7 @@ def _filter_tasks(request):
     return qs, {"q": q, "status": status, "sort": sort, "course": course}
 
 
+@login_required
 def index(request):
     capacity = _capacity(request)
     tasks_qs, filters = _filter_tasks(request)
@@ -142,13 +145,18 @@ def index(request):
     form = TaskForm(request.POST or None)
     if request.method == "POST":
         if form.is_valid():
-            task = form.save()
-            pts = f" · {task.estimate} pts" if task.estimate else ""
+            task = form.save(commit=False)
+            task.owner = request.user
+            task.save()
+            if task.estimate:
+                SignalEvent.log(request.user, SignalEvent.Kind.ESTIMATE, task=task, minutes=task.estimate)
+            pts = f", {task.estimate} pts" if task.estimate else ""
             messages.success(request, f"Task “{task.title}” added{pts}.")
             return redirect("main:index")
         messages.error(request, "Could not add task. Check the title.")
 
-    agg = Task.objects.aggregate(
+    mine = Task.objects.filter(owner=request.user)
+    agg = mine.aggregate(
         total=Count("id"),
         done=Count("id", filter=Q(completed=True)),
         active=Count("id", filter=Q(completed=False)),
@@ -179,7 +187,7 @@ def index(request):
     edit_form = None
     if editing_id:
         try:
-            edit_task = Task.objects.get(pk=int(editing_id))
+            edit_task = Task.objects.get(pk=int(editing_id), owner=request.user)
             edit_form = TaskForm(instance=edit_task)
         except (Task.DoesNotExist, ValueError):
             editing_id = None
@@ -189,7 +197,7 @@ def index(request):
     except (TypeError, ValueError):
         open_id = 0
     courses = list(
-        Task.objects.exclude(course="").values_list("course", flat=True).distinct().order_by("course")[:20]
+        Task.objects.filter(owner=request.user).exclude(course="").values_list("course", flat=True).distinct().order_by("course")[:20]
     )
 
     return render(
@@ -201,11 +209,11 @@ def index(request):
             "filters": filters,
             "base_qs": base_qs,
             "stats": {"total": total, "done": done, "active": active, "pct": pct},
-            "sprint": _sprint_stats(capacity),
+            "sprint": _sprint_stats(capacity, request.user),
             "fib_points": Task.FIB_POINTS,
             "estimate_guide": Task.ESTIMATE_GUIDE,
             "courses": courses,
-            "focus_today": _today_focus(),
+            "focus_today": _today_focus(request.user),
             "open_id": open_id,
             "editing_id": int(editing_id) if editing_id else None,
             "edit_form": edit_form,
@@ -213,8 +221,9 @@ def index(request):
     )
 
 
+@login_required
 def edit_task(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     if request.method == "POST":
         form = TaskForm(request.POST, instance=task)
         if form.is_valid():
@@ -227,35 +236,52 @@ def edit_task(request, pk):
     return redirect(url)
 
 
+@login_required
 @require_POST
 def complete_task(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     task.completed = not task.completed  # toggle so "Done" is reversible
     task.save(update_fields=["completed", "updated_at"])
-    state = "completed ✓" if task.completed else "reopened"
-    messages.success(request, f"Task “{task.title}” {state}.")
+    if task.completed:
+        actual = task.focus_sessions.aggregate(s=Sum("minutes"))["s"] or 0
+        EstimateRecord.objects.create(
+            owner=request.user,
+            task=task,
+            title=task.title[:255],
+            estimated=task.estimate,
+            actual_minutes=actual,
+            completed=True,
+        )
+        SignalEvent.log(request.user, SignalEvent.Kind.COMPLETE, task=task, minutes=actual)
+        messages.success(request, f"Task “{task.title}” completed.")
+    else:
+        SignalEvent.log(request.user, SignalEvent.Kind.REOPEN, task=task)
+        messages.success(request, f"Task “{task.title}” reopened.")
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def delete_task(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     title = task.title
     task.delete()
     messages.success(request, f"Task “{title}” deleted.")
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def clear_completed(request):
-    count, _ = Task.objects.filter(completed=True).delete()
+    count, _ = Task.objects.filter(owner=request.user, completed=True).delete()
     messages.success(request, f"Cleared {count} completed task(s)." if count else "Nothing to clear.")
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def toggle_sprint(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     task.in_sprint = not task.in_sprint
     task.save(update_fields=["in_sprint", "updated_at"])
     state = "added to sprint" if task.in_sprint else "removed from sprint"
@@ -263,20 +289,22 @@ def toggle_sprint(request, pk):
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def clear_sprint(request):
-    n = Task.objects.filter(in_sprint=True).update(in_sprint=False)
+    n = Task.objects.filter(owner=request.user, in_sprint=True).update(in_sprint=False)
     messages.success(request, f"Sprint cleared ({n} task(s))." if n else "Sprint already empty.")
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def auto_plan(request):
     """Greedy sprint fill: highest priority first, respecting capacity. Unestimated counts as 1."""
     capacity = request.session.get("sprint_capacity", 21)
-    Task.objects.all().update(in_sprint=False)
+    Task.objects.filter(owner=request.user).update(in_sprint=False)
     ordered = list(
-        Task.objects.filter(completed=False).annotate(
+        Task.objects.filter(owner=request.user, completed=False).annotate(
             _prank=Case(When(priority="H", then=0), When(priority="M", then=1), When(priority="L", then=2), default=1)
         ).order_by("_prank", "-estimate", "-created_at")
     )
@@ -292,6 +320,7 @@ def auto_plan(request):
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def snooze_task(request, pk):
     """Push due date out by a Fibonacci step: 1/2/3/5/8/13 days."""
@@ -299,7 +328,7 @@ def snooze_task(request, pk):
 
     from django.utils import timezone
 
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     try:
         days = int(request.POST.get("days", 3))
     except (TypeError, ValueError):
@@ -310,37 +339,42 @@ def snooze_task(request, pk):
     base = max(task.due_date or today, today)
     task.due_date = base + timedelta(days=days)
     task.save(update_fields=["due_date", "updated_at"])
+    SignalEvent.log(request.user, SignalEvent.Kind.SNOOZE, task=task, days=days)
     messages.success(request, f"“{task.title}” snoozed +{days}d → {task.due_date} (Fib step).")
     return redirect("main:index")
 
 
+@login_required
 @require_POST
 def subtask_add(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, owner=request.user)
     form = SubtaskForm(request.POST)
     if form.is_valid():
         Subtask.objects.create(task=task, title=form.cleaned_data["title"])
+        SignalEvent.log(request.user, SignalEvent.Kind.SPLIT, task=task)
         messages.success(request, f"Step added to “{task.title}”.")
     else:
         messages.error(request, "Step needs a title.")
     return redirect(f"{redirect('main:index').url}?open={task.pk}")
 
 
+@login_required
 @require_POST
 def subtask_toggle(request, pk):
     from .models import Subtask as _S
 
-    sub = get_object_or_404(_S, pk=pk)
+    sub = get_object_or_404(_S, pk=pk, task__owner=request.user)
     sub.completed = not sub.completed
     sub.save(update_fields=["completed"])
     return redirect(f"{redirect('main:index').url}?open={sub.task_id}")
 
 
+@login_required
 @require_POST
 def subtask_delete(request, pk):
     from .models import Subtask as _S
 
-    sub = get_object_or_404(_S, pk=pk)
+    sub = get_object_or_404(_S, pk=pk, task__owner=request.user)
     task_id = sub.task_id
     sub.delete()
     messages.success(request, "Step removed.")
@@ -356,7 +390,7 @@ def welcome_view(request):
             "fib_points": Task.FIB_POINTS,
             "estimate_guide": Task.ESTIMATE_GUIDE,
             "focus_presets": Task.FOCUS_PRESETS,
-            "task_count": Task.objects.count(),
+            "task_count": Task.objects.filter(owner=request.user).count() if request.user.is_authenticated else 0,
         },
     )
 
@@ -375,6 +409,7 @@ def guide_view(request):
     )
 
 
+@login_required
 def focus_view(request):
     minutes_param = request.GET.get("minutes", "13")
     try:
@@ -387,10 +422,10 @@ def focus_view(request):
         task_id = int(request.GET.get("task", 0) or 0)
     except (TypeError, ValueError):
         task_id = 0
-    active_task = Task.objects.filter(pk=task_id, completed=False).first() if task_id else None
-    open_tasks = Task.objects.filter(completed=False).order_by("-in_sprint", "-estimate", "-created_at")[:12]
-    today = _today_focus()
-    recent = FocusSession.objects.select_related("task")[:8]
+    active_task = Task.objects.filter(owner=request.user, pk=task_id, completed=False).first() if task_id else None
+    open_tasks = Task.objects.filter(owner=request.user, completed=False).order_by("-in_sprint", "-estimate", "-created_at")[:12]
+    today = _today_focus(request.user)
+    recent = FocusSession.objects.filter(owner=request.user).select_related("task")[:8]
     ladder = [1, 2, 3, 5]
     return render(
         request,
@@ -404,13 +439,14 @@ def focus_view(request):
             "active_task_id": active_task.pk if active_task else 0,
             "open_tasks": open_tasks,
             "today": today,
-            "week": _week_focus(),
+            "week": _week_focus(request.user),
             "recent": recent,
             "break_minutes": FocusSession.suggested_break(minutes),
         },
     )
 
 
+@login_required
 @require_POST
 def focus_log(request):
     try:
@@ -426,18 +462,20 @@ def focus_log(request):
     except (TypeError, ValueError):
         task_id = 0
     if task_id:
-        task = Task.objects.filter(pk=task_id).first()
-    FocusSession.objects.create(task=task, minutes=minutes)
+        task = Task.objects.filter(pk=task_id, owner=request.user).first()
+    FocusSession.objects.create(owner=request.user, task=task, minutes=minutes)
+    SignalEvent.log(request.user, SignalEvent.Kind.FOCUS, task=task, minutes=minutes)
     brk = FocusSession.suggested_break(minutes)
     label = f" on “{task.title}”" if task else ""
     messages.success(request, f"Logged {minutes}m of focus{label}. Take a {brk}m break.")
     return redirect("main:focus")
 
 
+@login_required
 @require_POST
 def seed_samples(request):
-    """First-run activation: 3 guided sample tasks (only when the list is empty)."""
-    if Task.objects.exists():
+    """First-run activation: 3 guided sample tasks (only when the user's list is empty)."""
+    if Task.objects.filter(owner=request.user).exists():
         messages.info(request, "You already have tasks — samples are for fresh starts.")
         return redirect("main:index")
     from datetime import timedelta
@@ -479,13 +517,14 @@ def seed_samples(request):
     ]
     for s in samples:
         steps = s.pop("steps")
-        task = Task.objects.create(**s)
+        task = Task.objects.create(owner=request.user, **s)
         for title in steps:
             Subtask.objects.create(task=task, title=title)
     messages.success(request, "Loaded 3 sample tasks — point one, split one, focus one.")
     return redirect("main:index")
 
 
+@login_required
 def export_csv(request):
     """Portability: download every task as CSV."""
     import csv
@@ -496,11 +535,12 @@ def export_csv(request):
     resp["Content-Disposition"] = 'attachment; filename="fibotask.csv"'
     w = csv.writer(resp)
     w.writerow(["id", "title", "course", "priority", "estimate", "in_sprint", "completed", "due_date", "created_at"])
-    for t in Task.objects.order_by("id"):
+    for t in Task.objects.filter(owner=request.user).order_by("id"):
         w.writerow([t.id, t.title, t.course, t.priority, t.estimate or "", t.in_sprint, t.completed, t.due_date or "", t.created_at.isoformat()])
     return resp
 
 
+@login_required
 @require_POST
 def lab_create_task(request):
     """Create a task straight from the Fibonacci Lab estimator."""
@@ -515,7 +555,7 @@ def lab_create_task(request):
     if estimate not in Task.FIB_POINTS:
         messages.error(request, "Pick a Fibonacci estimate (1, 2, 3, 5, 8, 13, 21).")
         return redirect("main:fibonacci")
-    Task.objects.create(title=title[:255], estimate=estimate)
+    Task.objects.create(owner=request.user, title=title[:255], estimate=estimate)
     messages.success(request, f"Estimated “{title}” at {estimate} pts → added to backlog.")
     return redirect("main:index")
 

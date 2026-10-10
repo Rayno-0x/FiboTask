@@ -1,8 +1,25 @@
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .models import Task
 from .utils import fibonacci_series
+
+
+class AuthMixin:
+    """Every app view requires login: tests run as an isolated user."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = get_user_model().objects.create_user(
+            username="tester", email="tester@example.com", password="pw123456"
+        )
+        self.client.force_login(self.user)
+
+    def other_user(self):
+        return get_user_model().objects.create_user(
+            username="other", email="other@example.com", password="pw123456"
+        )
 
 
 class FibonacciUtilTests(TestCase):
@@ -15,7 +32,7 @@ class FibonacciUtilTests(TestCase):
         self.assertEqual(fibonacci_series(-5), [])
 
 
-class TaskViewTests(TestCase):
+class TaskViewTests(AuthMixin, TestCase):
     def test_create_task_valid(self):
         resp = self.client.post(reverse("main:index"), {"title": "  Buy milk  "})
         self.assertRedirects(resp, reverse("main:index"))
@@ -28,7 +45,7 @@ class TaskViewTests(TestCase):
         self.assertEqual(Task.objects.count(), 0)
 
     def test_complete_requires_post_and_toggles(self):
-        task = Task.objects.create(title="T")
+        task = Task.objects.create(owner=self.user, title="T")
         resp = self.client.get(reverse("main:complete_task", args=[task.pk]))
         self.assertEqual(resp.status_code, 405)  # GET must not mutate
         task.refresh_from_db()
@@ -43,7 +60,7 @@ class TaskViewTests(TestCase):
         self.assertFalse(task.completed)
 
     def test_delete_requires_post(self):
-        task = Task.objects.create(title="T")
+        task = Task.objects.create(owner=self.user, title="T")
         self.assertEqual(self.client.get(reverse("main:delete_task", args=[task.pk])).status_code, 405)
         self.assertEqual(Task.objects.count(), 1)
         self.client.post(reverse("main:delete_task", args=[task.pk]))
@@ -51,15 +68,15 @@ class TaskViewTests(TestCase):
 
     def test_index_paginates(self):
         for i in range(15):
-            Task.objects.create(title=f"T{i}")
+            Task.objects.create(owner=self.user, title=f"T{i}")
         resp = self.client.get(reverse("main:index"))
         self.assertEqual(len(resp.context["page_obj"]), 8)
         resp2 = self.client.get(reverse("main:index") + "?page=2")
         self.assertEqual(len(resp2.context["page_obj"]), 7)
 
     def test_create_with_priority_and_search_filter(self):
-        Task.objects.create(title="Buy milk", priority="H")
-        Task.objects.create(title="Read book", priority="L", completed=True)
+        Task.objects.create(owner=self.user, title="Buy milk", priority="H")
+        Task.objects.create(owner=self.user, title="Read book", priority="L", completed=True)
         resp = self.client.get(reverse("main:index") + "?q=milk")
         self.assertContains(resp, "Buy milk")
         self.assertNotContains(resp, "Read book")
@@ -68,7 +85,7 @@ class TaskViewTests(TestCase):
         self.assertNotContains(resp, "Buy milk")
 
     def test_edit_and_clear_completed(self):
-        task = Task.objects.create(title="Old")
+        task = Task.objects.create(owner=self.user, title="Old")
         resp = self.client.post(
             reverse("main:edit_task", args=[task.pk]),
             {"title": "New", "priority": "H", "notes": "hi"},
@@ -77,12 +94,12 @@ class TaskViewTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.title, "New")
         self.assertEqual(task.priority, "H")
-        Task.objects.create(title="Done one", completed=True)
+        Task.objects.create(owner=self.user, title="Done one", completed=True)
         self.client.post(reverse("main:clear_completed"))
         self.assertEqual(Task.objects.filter(completed=True).count(), 0)
 
 
-class FibTasksIntegrationTests(TestCase):
+class FibTasksIntegrationTests(AuthMixin, TestCase):
     def test_create_with_estimate(self):
         resp = self.client.post(
             reverse("main:index"), {"title": "API work", "estimate": "8", "priority": "H"}
@@ -106,7 +123,7 @@ class FibTasksIntegrationTests(TestCase):
         self.assertEqual(Task.objects.count(), 0)
 
     def test_sprint_toggle_and_filter(self):
-        t = Task.objects.create(title="S", estimate=5)
+        t = Task.objects.create(owner=self.user, title="S", estimate=5)
         self.client.post(reverse("main:toggle_sprint", args=[t.pk]))
         t.refresh_from_db()
         self.assertTrue(t.in_sprint)
@@ -114,9 +131,9 @@ class FibTasksIntegrationTests(TestCase):
         self.assertContains(resp, "S")
 
     def test_auto_plan_respects_capacity(self):
-        Task.objects.create(title="Big", estimate=13, priority="H")
-        Task.objects.create(title="Med", estimate=8, priority="M")
-        Task.objects.create(title="Small", estimate=3, priority="M")
+        Task.objects.create(owner=self.user, title="Big", estimate=13, priority="H")
+        Task.objects.create(owner=self.user, title="Med", estimate=8, priority="M")
+        Task.objects.create(owner=self.user, title="Small", estimate=3, priority="M")
         self.client.get(reverse("main:index") + "?capacity=21")
         self.client.post(reverse("main:auto_plan"))
         total = sum((t.estimate or 1) for t in Task.objects.filter(in_sprint=True))
@@ -126,7 +143,7 @@ class FibTasksIntegrationTests(TestCase):
     def test_snooze_advances_due_date(self):
         from datetime import date, timedelta
 
-        t = Task.objects.create(title="Overdue", due_date=date(2020, 1, 1))
+        t = Task.objects.create(owner=self.user, title="Overdue", due_date=date(2020, 1, 1))
         self.client.post(reverse("main:snooze_task", args=[t.pk]), {"days": "5"})
         t.refresh_from_db()
         self.assertGreater(t.due_date, date(2020, 1, 1))
@@ -137,16 +154,16 @@ class FibTasksIntegrationTests(TestCase):
 
         from django.utils import timezone
 
-        t = Task.objects.create(title="X", due_date=timezone.localdate())
+        t = Task.objects.create(owner=self.user, title="X", due_date=timezone.localdate())
         self.client.post(reverse("main:snooze_task", args=[t.pk]), {"days": "4"})
         t.refresh_from_db()
         # falls back to +3 from today
         self.assertEqual(t.due_date, timezone.localdate() + timedelta(days=3))
 
 
-class StudentEditionTests(TestCase):
+class StudentEditionTests(AuthMixin, TestCase):
     def test_subtask_add_toggle_delete(self):
-        t = Task.objects.create(title="Essay", estimate=8)
+        t = Task.objects.create(owner=self.user, title="Essay", estimate=8)
         resp = self.client.post(reverse("main:subtask_add", args=[t.pk]), {"title": "Outline"})
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(t.subtasks.count(), 1)
@@ -158,12 +175,12 @@ class StudentEditionTests(TestCase):
         self.assertEqual(t.subtasks.count(), 0)
 
     def test_subtask_requires_title(self):
-        t = Task.objects.create(title="Essay")
+        t = Task.objects.create(owner=self.user, title="Essay")
         self.client.post(reverse("main:subtask_add", args=[t.pk]), {"title": "   "})
         self.assertEqual(t.subtasks.count(), 0)
 
     def test_focus_page_and_log(self):
-        t = Task.objects.create(title="Study", estimate=5)
+        t = Task.objects.create(owner=self.user, title="Study", estimate=5)
         resp = self.client.get(reverse("main:focus") + f"?minutes=5&task={t.pk}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context["minutes"], 5)
@@ -179,15 +196,15 @@ class StudentEditionTests(TestCase):
         self.assertEqual(FocusSession.objects.count(), 0)
 
     def test_course_filter_and_search(self):
-        Task.objects.create(title="Zeta problem set", course="Math 101")
-        Task.objects.create(title="Zeta novel draft", course="Eng 201")
+        Task.objects.create(owner=self.user, title="Zeta problem set", course="Math 101")
+        Task.objects.create(owner=self.user, title="Zeta novel draft", course="Eng 201")
         resp = self.client.get(reverse("main:index") + "?course=Math 101")
         self.assertContains(resp, "Zeta problem set")
         self.assertNotContains(resp, "Zeta novel draft")
 
     def test_needs_split_flag(self):
-        big = Task.objects.create(title="Thesis", estimate=13)
-        small = Task.objects.create(title="Email", estimate=2)
+        big = Task.objects.create(owner=self.user, title="Thesis", estimate=13)
+        small = Task.objects.create(owner=self.user, title="Email", estimate=2)
         self.assertTrue(big.needs_split)
         self.assertFalse(small.needs_split)
 
@@ -211,16 +228,19 @@ class FibonacciViewTests(TestCase):
         self.assertEqual(list(resp.context["series"]), [])
 
 
-class LandingGuideTests(TestCase):
+class LandingGuideTests(AuthMixin, TestCase):
     def test_welcome_renders_one_look(self):
         resp = self.client.get(reverse("main:welcome"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Homework,")
-        self.assertContains(resp, "Start now")
+        self.assertContains(resp, "Open my tasks")  # authenticated CTA
         self.assertContains(resp, "storyStage")
         self.assertContains(resp, "storyClock")
         self.assertContains(resp, "story-bg")
         self.assertContains(resp, "Sunday night")
+        self.client.logout()
+        resp = self.client.get(reverse("main:welcome"))
+        self.assertContains(resp, "Start now")  # anonymous CTA
 
     def test_guide_renders_docs(self):
         resp = self.client.get(reverse("main:guide"))
@@ -262,7 +282,7 @@ class LandingGuideTests(TestCase):
         self.assertIn("SECRET_KEY", r.stderr)
 
     def test_confirm_popup_markup_present(self):
-        Task.objects.create(title="Zeta popup")
+        Task.objects.create(owner=self.user, title="Zeta popup")
         resp = self.client.get(reverse("main:index"))
         self.assertContains(resp, "confirmVeil")
         self.assertContains(resp, "Delete this task?")
@@ -273,7 +293,7 @@ class LandingGuideTests(TestCase):
         self.assertContains(resp, "apple-touch-icon.png")
 
 
-class MVPCompletenessTests(TestCase):
+class MVPCompletenessTests(AuthMixin, TestCase):
     def test_seed_samples_first_run(self):
         resp = self.client.post(reverse("main:seed_samples"))
         self.assertRedirects(resp, reverse("main:index"))
@@ -284,13 +304,13 @@ class MVPCompletenessTests(TestCase):
         self.assertTrue(big.in_sprint)
 
     def test_seed_refuses_when_tasks_exist(self):
-        Task.objects.create(title="Mine")
+        Task.objects.create(owner=self.user, title="Mine")
         resp = self.client.post(reverse("main:seed_samples"))
         self.assertRedirects(resp, reverse("main:index"))
         self.assertEqual(Task.objects.count(), 1)
 
     def test_export_csv(self):
-        Task.objects.create(title="Zeta export", course="Math 101", estimate=3)
+        Task.objects.create(owner=self.user, title="Zeta export", course="Math 101", estimate=3)
         resp = self.client.get(reverse("main:export_csv"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "text/csv")
@@ -303,3 +323,100 @@ class MVPCompletenessTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("week", resp.context)
         self.assertIn("This week", resp.content.decode())
+
+
+class Phase1AuthTests(TestCase):
+    def test_anon_redirected_to_login(self):
+        for url in ["main:index", "main:focus", "main:export_csv"]:
+            resp = self.client.get(reverse(url))
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn(reverse("account_login"), resp.url)
+        resp = self.client.post(reverse("main:index"), {"title": "x"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("account_login"), resp.url)
+
+    def test_signup_creates_user_profile_and_logs_in(self):
+        resp = self.client.post(
+            reverse("account_signup"),
+            {"email": "new@example.com", "username": "newbie", "password1": "s3cure-pass-1", "password2": "s3cure-pass-1"},
+        )
+        self.assertRedirects(resp, reverse("main:index"))
+        user = get_user_model().objects.get(username="newbie")
+        self.assertTrue(hasattr(user, "profile"))
+        self.assertIsNone(user.profile.organization)
+
+    def test_users_cannot_see_or_touch_each_other(self):
+        from .models import Subtask
+
+        mine = Task.objects.create(owner=self._login_as("ana"), title="Ana private")
+        theirs = Task.objects.create(owner=self._login_as("bob"), title="Bob private")
+        sub = Subtask.objects.create(task=mine, title="Ana step")
+        self.client.force_login(theirs.owner)
+        resp = self.client.get(reverse("main:index"))
+        self.assertContains(resp, "Bob private")
+        self.assertNotContains(resp, "Ana private")
+        for url in [
+            reverse("main:complete_task", args=[mine.pk]),
+            reverse("main:delete_task", args=[mine.pk]),
+            reverse("main:toggle_sprint", args=[mine.pk]),
+            reverse("main:snooze_task", args=[mine.pk]),
+            reverse("main:subtask_toggle", args=[sub.pk]),
+            reverse("main:subtask_delete", args=[sub.pk]),
+        ]:
+            self.assertEqual(self.client.post(url).status_code, 404)
+        self.assertEqual(self.client.post(reverse("main:edit_task", args=[mine.pk]), {"title": "Hijack"}).status_code, 404)
+        mine.refresh_from_db()
+        self.assertEqual(mine.title, "Ana private")
+        self.assertEqual(Task.objects.filter(owner=theirs.owner).count(), 1)
+
+    def _login_as(self, name):
+        user = get_user_model().objects.create_user(username=name, email=f"{name}@x.com", password="pw123456")
+        return user
+
+    def test_completion_writes_estimate_record_and_signal(self):
+        from .models import EstimateRecord, SignalEvent
+
+        user = self._login_as("cal")
+        self.client.force_login(user)
+        t = Task.objects.create(owner=user, title="Calibrated", estimate=5)
+        self.client.post(reverse("main:focus_log"), {"minutes": "13", "task": str(t.pk)})
+        self.client.post(reverse("main:complete_task", args=[t.pk]))
+        rec = EstimateRecord.objects.get(task=t)
+        self.assertEqual((rec.owner, rec.estimated, rec.actual_minutes), (user, 5, 13))
+        kinds = set(SignalEvent.objects.filter(owner=user).values_list("kind", flat=True))
+        self.assertTrue({"focus", "complete"} <= kinds)
+
+    def test_snooze_and_split_log_signals(self):
+        from .models import SignalEvent
+
+        user = self._login_as("sig")
+        self.client.force_login(user)
+        t = Task.objects.create(owner=user, title="Sig task")
+        self.client.post(reverse("main:snooze_task", args=[t.pk]), {"days": "3"})
+        self.client.post(reverse("main:subtask_add", args=[t.pk]), {"title": "First step"})
+        kinds = set(SignalEvent.objects.filter(owner=user).values_list("kind", flat=True))
+        self.assertTrue({"snooze", "split"} <= kinds)
+
+    def test_seed_and_export_are_per_user(self):
+        me = self._login_as("me")
+        you = self._login_as("you")
+        self.client.force_login(me)
+        self.client.post(reverse("main:seed_samples"))
+        Task.objects.create(owner=me, title="Me only task")
+        self.client.force_login(you)
+        self.client.post(reverse("main:seed_samples"))
+        self.assertEqual(Task.objects.filter(owner=me).count(), 4)
+        self.assertEqual(Task.objects.filter(owner=you).count(), 3)
+        resp = self.client.get(reverse("main:export_csv"))
+        content = resp.content.decode()
+        self.assertIn("Bio 101 problem set", content)
+        self.assertNotContains(resp, "Me only task")
+
+    def test_google_button_hidden_without_credentials(self):
+        resp = self.client.get(reverse("account_login"))
+        self.assertNotContains(resp, "Continue with Google")
+
+    @override_settings(GOOGLE_CLIENT_ID="id", GOOGLE_CLIENT_SECRET="secret")
+    def test_google_button_shown_with_credentials(self):
+        resp = self.client.get(reverse("account_login"))
+        self.assertContains(resp, "Continue with Google")
