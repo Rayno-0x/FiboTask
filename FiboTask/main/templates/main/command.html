@@ -1,0 +1,136 @@
+{% extends "main/base.html" %}
+{% block title %}Command · FiboTask{% endblock %}
+{% block content %}
+
+<section class="card card-pad cmd-hero">
+  <div>
+    <div class="eyebrow">Command center</div>
+    <h1>{{ readiness.state }}</h1>
+    <p class="sub">{{ readiness.reason }}</p>
+  </div>
+  <div class="ring-wrap">
+    <div class="ring" style="--p:{{ readiness.score }}"><b>{{ readiness.score }}</b></div>
+    <div class="hint">pressure<br />0 calm · 100 max</div>
+  </div>
+</section>
+
+<div class="grid2" style="margin-top:18px">
+  <section class="card card-pad">
+    <h2>Energy map</h2>
+    <p class="sub">Where your focus actually lives. 13s belong in peak zones.</p>
+    <div class="energy-strip">
+      {% for z in energy %}
+      <div class="ezone {{ z.level }}" title="{{ z.sessions }} sessions, {{ z.minutes }} min{% if z.energy %}, energy {{ z.energy }}/5{% endif %}">
+        <span>{{ z.label }}</span>
+        <b>{{ z.minutes }}m</b>
+      </div>
+      {% endfor %}
+    </div>
+    {% if calibration.message %}
+    <hr class="soft" />
+    <h2>Calibration</h2>
+    <p class="sub">{{ calibration.message }}</p>
+    <p class="hint">{% if calibration.n == 1 %}1 rated completion{% else %}{{ calibration.n }} rated completions{% endif %} · rate {% if calibration.rate %}{{ calibration.rate }} min/pt{% else %}—{% endif %}</p>
+    {% endif %}
+  </section>
+
+  <section class="card card-pad">
+    <h2>Morning briefing</h2>
+    <p class="sub">Warm up small, then work the sprint.</p>
+    {% if briefing %}
+    <ol class="brief">
+      {% for t in briefing %}
+      <li>
+        <span>{{ t.title|truncatechars:52 }}</span>
+        {% if t.estimate %}<span class="pill pts">{{ t.estimate }} pts</span>{% endif %}
+        <a class="icon-action" href="{% url 'main:focus' %}?task={{ t.id }}&minutes=13" title="Focus 13 min" aria-label="Focus"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 4.8V8l2.2 1.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></a>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="sub">Nothing open. Enjoy it, or <a href="{% url 'main:index' %}">add tomorrow's first task</a>.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card card-pad" style="margin-top:18px">
+  <h2>At risk</h2>
+  {% if risks %}
+  <ul class="risks">
+    {% for r in risks %}
+    <li>
+      <div>
+        <div class="t-title">{{ r.task.title }}</div>
+        <div class="hint">{{ r.reason }} · suggested: {{ r.action }}</div>
+      </div>
+      <a class="btn ghost small" href="{% url 'main:focus' %}?task={{ r.task.id }}&minutes=13" style="text-decoration:none">Focus</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="sub">Nothing at risk. The radar is quiet.</p>
+  {% endif %}
+</section>
+
+<div class="grid2" style="margin-top:18px">
+  <section class="card card-pad">
+    <h2>Estimator</h2>
+    <p class="sub">Size it here, it lands in your backlog.</p>
+    <div class="seg" style="margin-top:10px" role="tablist" aria-label="Estimate points">
+      {% for p in fib_points %}
+      <a href="?{% if n %}n={{ n }}&{% endif %}points={{ p }}" class="{% if sel_points == p %}active{% endif %}">{{ p }}</a>
+      {% endfor %}
+    </div>
+    <form method="post" action="{% url 'main:lab_create_task' %}" class="add-form">
+      {% csrf_token %}
+      <input type="hidden" name="estimate" value="{{ sel_points }}" />
+      <div class="add-main">
+        <input type="text" name="title" maxlength="255" required placeholder="Task name…" aria-label="Task title" />
+        <button class="btn" type="submit">{{ sel_points }} pts</button>
+      </div>
+    </form>
+    <details class="opts" style="margin-top:14px">
+      <summary>What do the numbers mean?</summary>
+      <ul class="guide">
+        {% for pts, info in estimate_guide.items %}
+        <li><b>{{ pts }}</b> {{ info.0 }}: {{ info.1 }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+  </section>
+
+  <section class="card card-pad">
+    <h2>Sequence explorer</h2>
+    <form method="get" class="fib-controls">
+      <div>
+        <label class="lbl" for="id_n">Terms</label>
+        {{ form.n }}
+        <input type="range" id="nRange" min="1" max="{{ max_terms }}" value="{{ n|default:10 }}" aria-label="Terms slider" style="margin-top:10px" />
+        {% if form.n.errors %}<p class="field-err">{{ form.n.errors.0 }}</p>{% endif %}
+      </div>
+      <button class="btn" type="submit">Generate</button>
+    </form>
+    {% if stats %}
+    <div class="stat-grid stat-3">
+      <div class="fstat"><span>Last term</span><b class="mono">{{ stats.last }}</b></div>
+      <div class="fstat"><span>Golden ratio</span><b class="mono">{% if stats.ratio %}{{ stats.ratio|floatformat:4 }}{% else %}—{% endif %}</b></div>
+      <div class="fstat"><span>Sum</span><b class="mono">{{ stats.sum }}</b></div>
+    </div>
+    <div class="chart" role="img" aria-label="Bar chart of {{ stats.count }} Fibonacci terms">
+      {% for b in bars %}<div class="bar {% if b.even %}even{% else %}odd{% endif %}" style="height:{{ b.h }}%" data-v="F{{ b.i }}={{ b.v }}" title="F{{ b.i }} = {{ b.v }}"></div>{% endfor %}
+    </div>
+    <details class="opts" style="margin-top:12px">
+      <summary>Full sequence and export options</summary>
+      <div class="toolbar-row">
+        <button class="btn ghost small" id="copyBtn" type="button">Copy</button>
+        <button class="btn ghost small" id="csvBtn" type="button">CSV</button>
+        <button class="btn ghost small" id="jsonBtn" type="button">JSON</button>
+      </div>
+      <div class="series" id="seriesText" data-raw="{{ series|join:',' }}">{{ series|join:", " }}</div>
+    </details>
+    {% else %}
+    <p class="sub" style="margin-top:10px">Pick a term count. The curve your estimates follow.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

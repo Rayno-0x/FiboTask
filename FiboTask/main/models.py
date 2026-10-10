@@ -134,6 +134,9 @@ class FocusSession(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name="focus_sessions"
     )
     minutes = models.PositiveIntegerField()
+    # Sampled energy check-in (asked every 3rd session): 1 drained … 5 charged.
+    energy_in = models.PositiveSmallIntegerField(null=True, blank=True)
+    energy_out = models.PositiveSmallIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

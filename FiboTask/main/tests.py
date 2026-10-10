@@ -119,7 +119,7 @@ class FibTasksIntegrationTests(AuthMixin, TestCase):
         resp = self.client.post(
             reverse("main:lab_create_task"), {"title": "Bad", "estimate": "7"}
         )
-        self.assertRedirects(resp, reverse("main:fibonacci"))
+        self.assertRedirects(resp, reverse("main:command"))
         self.assertEqual(Task.objects.count(), 0)
 
     def test_sprint_toggle_and_filter(self):
@@ -209,38 +209,49 @@ class StudentEditionTests(AuthMixin, TestCase):
         self.assertFalse(small.needs_split)
 
 
-class FibonacciViewTests(TestCase):
-    def test_valid_n(self):
-        resp = self.client.get(reverse("main:fibonacci") + "?n=10")
+class CommandLabTests(AuthMixin, TestCase):
+    def test_generator_lives_on_command(self):
+        resp = self.client.get(reverse("main:command") + "?n=10")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(list(resp.context["series"]), [0, 1, 1, 2, 3, 5, 8, 13, 21, 34])
 
     def test_invalid_n_shows_error_no_crash(self):
         for bad in ["abc", "-5", "0", "2.5", ""]:
-            resp = self.client.get(reverse("main:fibonacci") + f"?n={bad}")
+            resp = self.client.get(reverse("main:command") + f"?n={bad}")
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(list(resp.context["series"]), [])
 
     @override_settings(FIBONACCI_MAX_TERMS=20)
     def test_cap_enforced(self):
-        resp = self.client.get(reverse("main:fibonacci") + "?n=100")
+        resp = self.client.get(reverse("main:command") + "?n=100")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(list(resp.context["series"]), [])
+
+    def test_old_lab_url_redirects_to_command(self):
+        resp = self.client.get("/fibonacci/?n=10")
+        self.assertRedirects(resp, "/command/")
+
+    def test_command_requires_login(self):
+        self.client.logout()
+        resp = self.client.get(reverse("main:command"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse("account_login"), resp.url)
 
 
 class LandingGuideTests(AuthMixin, TestCase):
     def test_welcome_renders_one_look(self):
+        self.client.logout()  # landing is for newcomers; members get redirected
         resp = self.client.get(reverse("main:welcome"))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Homework,")
-        self.assertContains(resp, "Open my tasks")  # authenticated CTA
+        self.assertContains(resp, "Start now")  # anonymous CTA
         self.assertContains(resp, "storyStage")
         self.assertContains(resp, "storyClock")
         self.assertContains(resp, "story-bg")
         self.assertContains(resp, "Sunday night")
-        self.client.logout()
+        self.client.force_login(self.user)  # member with no history goes to tasks
         resp = self.client.get(reverse("main:welcome"))
-        self.assertContains(resp, "Start now")  # anonymous CTA
+        self.assertRedirects(resp, reverse("main:index"))
 
     def test_guide_renders_docs(self):
         resp = self.client.get(reverse("main:guide"))
@@ -255,11 +266,21 @@ class LandingGuideTests(AuthMixin, TestCase):
         self.assertContains(resp, reverse("main:focus"))
 
     def test_root_is_landing_and_old_url_redirects(self):
+        self.client.logout()
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Homework,")
         resp = self.client.get("/welcome/")
         self.assertRedirects(resp, "/")
+
+    def test_graduated_home_for_active_users(self):
+        # New user (<5 sessions) goes to tasks; veteran (5+) to command.
+        resp = self.client.get(reverse("main:welcome"))
+        self.assertRedirects(resp, reverse("main:index"))
+        for _ in range(5):
+            self.client.post(reverse("main:focus_log"), {"minutes": "5"})
+        resp = self.client.get(reverse("main:welcome"))
+        self.assertRedirects(resp, reverse("main:command"))
 
     def test_prod_refuses_dev_secret_key(self):
         """Booting with DEBUG off and no SECRET_KEY must fail loudly."""
@@ -323,6 +344,146 @@ class MVPCompletenessTests(AuthMixin, TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("week", resp.context)
         self.assertIn("This week", resp.content.decode())
+
+
+class AnalyticsTests(AuthMixin, TestCase):
+    def test_energy_map_empty_is_neutral(self):
+        from .analytics import energy_map
+
+        zones = energy_map(self.user)
+        self.assertEqual(len(zones), 5)
+        self.assertTrue(all(z["level"] == "steady" or z["level"] == "low" for z in zones))
+        self.assertTrue(all(z["minutes"] == 0 for z in zones))
+
+    def test_energy_map_finds_peak_zone(self):
+        from .analytics import energy_map
+        from .models import FocusSession
+
+        FocusSession.objects.create(owner=self.user, minutes=21)  # current hour's part
+        zones = energy_map(self.user)
+        self.assertEqual(sum(z["minutes"] for z in zones), 21)
+        self.assertIn("peak", [z["level"] for z in zones])
+
+    def test_readiness_new_user_is_charged(self):
+        from .analytics import readiness
+
+        r = readiness(self.user)
+        self.assertEqual(r["state"], "Charged")
+        self.assertLess(r["score"], 35)
+
+    def test_readiness_overload_with_evidence(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .analytics import readiness
+        from .models import SignalEvent
+
+        today = timezone.localdate()
+        Task.objects.create(owner=self.user, title="Huge", estimate=21, due_date=today - timedelta(days=3))
+        Task.objects.create(owner=self.user, title="Big", estimate=13, due_date=today - timedelta(days=1))
+        Task.objects.create(owner=self.user, title="Med", estimate=8, due_date=today - timedelta(days=1))
+        for _ in range(4):
+            SignalEvent.objects.create(owner=self.user, kind=SignalEvent.Kind.SNOOZE)
+        r = readiness(self.user)
+        self.assertEqual(r["state"], "Overloaded")
+        self.assertIn("Ease off", r["reason"])
+
+    def test_calibration_message_after_completion(self):
+        from .analytics import calibration_summary
+        from .models import EstimateRecord
+
+        # Three records so a real bias can emerge (one record is self-referential).
+        EstimateRecord.objects.create(owner=self.user, title="Trivial", estimated=2, actual_minutes=4, completed=True)
+        EstimateRecord.objects.create(owner=self.user, title="Normal", estimated=3, actual_minutes=6, completed=True)
+        EstimateRecord.objects.create(owner=self.user, title="Heavy", estimated=5, actual_minutes=64, completed=True)
+        cal = calibration_summary(self.user)
+        self.assertEqual(cal["n"], 3)
+        self.assertAlmostEqual(cal["rate"], 7.4)
+        self.assertIn("size up", cal["message"])
+
+    def test_completion_writes_calibration_record(self):
+        from .models import EstimateRecord
+
+        t = Task.objects.create(owner=self.user, title="Calibrated", estimate=5)
+        self.client.post(reverse("main:focus_log"), {"minutes": "13", "task": str(t.pk)})
+        self.client.post(reverse("main:complete_task", args=[t.pk]))
+        rec = EstimateRecord.objects.get(task=t)
+        self.assertEqual((rec.owner, rec.estimated, rec.actual_minutes), (self.user, 5, 13))
+
+    def test_at_risk_orders_overdue_first(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .analytics import at_risk
+
+        today = timezone.localdate()
+        Task.objects.create(owner=self.user, title="Later", estimate=3, due_date=today + timedelta(days=2))
+        late = Task.objects.create(owner=self.user, title="Late", estimate=2, due_date=today - timedelta(days=2))
+        risks = at_risk(self.user)
+        self.assertEqual(risks[0]["task"].pk, late.pk)
+        self.assertIn("Overdue", risks[0]["reason"])
+        self.assertIn("13 min", risks[0]["action"])
+
+    def test_briefing_starts_with_warmup(self):
+        from .analytics import briefing
+
+        Task.objects.create(owner=self.user, title="Epic", estimate=13, priority="H")
+        Task.objects.create(owner=self.user, title="Tiny", estimate=1, priority="L")
+        queue = briefing(self.user)
+        self.assertEqual(queue[0].title, "Tiny")
+        self.assertEqual(len(queue), 2)
+
+
+class CommandViewTests(AuthMixin, TestCase):
+    def test_command_renders_all_cards(self):
+        Task.objects.create(owner=self.user, title="Cmd task", estimate=5)
+        resp = self.client.get(reverse("main:command"))
+        self.assertEqual(resp.status_code, 200)
+        for needle in ["Command center", "Energy map", "Morning briefing", "At risk", "Estimator", "Sequence explorer"]:
+            self.assertContains(resp, needle)
+        self.assertIn("readiness", resp.context)
+        self.assertIn("briefing", resp.context)
+
+    def test_command_estimator_creates_task(self):
+        resp = self.client.post(reverse("main:lab_create_task"), {"title": "From command", "estimate": "3"})
+        self.assertRedirects(resp, reverse("main:index"))
+        self.assertEqual(Task.objects.get(title="From command").estimate, 3)
+
+    def test_sidebar_gauge_links_command(self):
+        resp = self.client.get(reverse("main:index"))
+        self.assertContains(resp, reverse("main:command"))
+
+    def test_checkin_flow_every_third_session(self):
+        from .models import FocusSession
+
+        for _ in range(2):
+            self.client.post(reverse("main:focus_log"), {"minutes": "5"})
+        resp = self.client.post(reverse("main:focus_log"), {"minutes": "5"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("checkin=", resp.url)
+        session = FocusSession.objects.filter(owner=self.user).latest("id")
+        resp = self.client.get(reverse("main:focus") + f"?checkin={session.pk}")
+        self.assertContains(resp, "Energy going in")
+        resp = self.client.post(
+            reverse("main:focus_checkin"),
+            {"session": str(session.pk), "energy_in": "2", "energy_out": "4"},
+        )
+        self.assertRedirects(resp, reverse("main:focus"))
+        session.refresh_from_db()
+        self.assertEqual((session.energy_in, session.energy_out), (2, 4))
+
+    def test_checkin_rejects_out_of_range(self):
+        from .models import FocusSession
+
+        s = FocusSession.objects.create(owner=self.user, minutes=5)
+        resp = self.client.post(
+            reverse("main:focus_checkin"), {"session": str(s.pk), "energy_in": "9", "energy_out": "0"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        s.refresh_from_db()
+        self.assertIsNone(s.energy_out)
 
 
 class Phase1AuthTests(TestCase):

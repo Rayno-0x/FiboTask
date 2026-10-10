@@ -43,6 +43,33 @@
       <button class="btn ghost small" id="focusLogBtn" type="submit" disabled>Log {{ minutes }} min{% if active_task %} on “{{ active_task.title|truncatechars:32 }}”{% endif %}</button>
       <span class="hint" id="focusMsg">Work at least a minute, then log what you did. Suggested break after {{ minutes }} min: {{ break_minutes }} min.</span>
     </form>
+
+    {% if checkin %}
+    <section class="checkin" aria-label="Energy check-in">
+      <h2>Quick check: that {{ checkin.minutes }} min block?</h2>
+      <p class="sub">10 seconds. It teaches your energy map.</p>
+      <form method="post" action="{% url 'main:focus_checkin' %}">
+        {% csrf_token %}
+        <input type="hidden" name="session" value="{{ checkin.pk }}" />
+        <div class="rate-row">
+          <span class="lbl">Energy going in</span>
+          <div class="seg" role="radiogroup" aria-label="Energy going in">
+            {% for v in "12345" %}<label><input type="radio" name="energy_in" value="{{ v }}" required />{{ v }}</label>{% endfor %}
+          </div>
+        </div>
+        <div class="rate-row">
+          <span class="lbl">Energy coming out</span>
+          <div class="seg" role="radiogroup" aria-label="Energy coming out">
+            {% for v in "12345" %}<label><input type="radio" name="energy_out" value="{{ v }}" required />{{ v }}</label>{% endfor %}
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn small" type="submit">Save check-in</button>
+          <a class="quiet" href="{% url 'main:focus' %}">Skip</a>
+        </div>
+      </form>
+    </section>
+    {% endif %}
   </section>
 
   <aside class="side">

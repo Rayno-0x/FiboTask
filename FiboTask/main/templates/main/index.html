@@ -206,6 +206,10 @@
         </div>
       </div>
       <div class="progress" aria-hidden="true"><i style="width:{{ stats.pct }}%"></i></div>
+      <a class="gauge-line" href="{% url 'main:command' %}">
+        <span class="pill gauge-{{ readiness.state|lower }}">{{ readiness.state }}</span>
+        <span class="hint">{{ readiness.reason|truncatechars:72 }}</span>
+      </a>
       <div class="btn-row">
         <a class="btn small" href="{% url 'main:focus' %}" style="text-decoration:none">Start focusing</a>
         <a class="btn ghost small" href="?status=today" style="text-decoration:none">Due today</a>

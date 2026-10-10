@@ -24,7 +24,9 @@ urlpatterns = [
     path("subtasks/<int:pk>/delete/", views.subtask_delete, name="subtask_delete"),
     path("focus/", views.focus_view, name="focus"),
     path("focus/log/", views.focus_log, name="focus_log"),
+    path("focus/checkin/", views.focus_checkin, name="focus_checkin"),
+    path("command/", views.command_view, name="command"),
     path("guide/", views.guide_view, name="guide"),
     path("fibonacci/create-task/", views.lab_create_task, name="lab_create_task"),
-    path("fibonacci/", views.fibonacci_view, name="fibonacci"),
+    path("fibonacci/", RedirectView.as_view(url="/command/", permanent=False)),
 ]

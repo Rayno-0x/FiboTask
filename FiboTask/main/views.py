@@ -6,6 +6,7 @@ from django.db.models import Case, Count, Q, Sum, When
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from .analytics import at_risk, briefing, calibration_summary, energy_map, readiness
 from .forms import FibonacciForm, SubtaskForm, TaskForm
 from .models import EstimateRecord, FocusSession, SignalEvent, Subtask, Task
 from .utils import fibonacci_series
@@ -214,6 +215,7 @@ def index(request):
             "estimate_guide": Task.ESTIMATE_GUIDE,
             "courses": courses,
             "focus_today": _today_focus(request.user),
+            "readiness": readiness(request.user),
             "open_id": open_id,
             "editing_id": int(editing_id) if editing_id else None,
             "edit_form": edit_form,
@@ -382,7 +384,16 @@ def subtask_delete(request, pk):
 
 
 def welcome_view(request):
-    """Animated one-look landing: size it, split it, start it."""
+    """Landing for newcomers; active users go straight to work.
+
+    Graduated home: 5+ focus sessions earns the Command center,
+    otherwise the task list. Anonymous visitors always see the pitch.
+    """
+    if request.user.is_authenticated:
+        sessions = FocusSession.objects.filter(owner=request.user).count()
+        if sessions >= 5:
+            return redirect("main:command")
+        return redirect("main:index")
     return render(
         request,
         "main/welcome.html",
@@ -390,7 +401,7 @@ def welcome_view(request):
             "fib_points": Task.FIB_POINTS,
             "estimate_guide": Task.ESTIMATE_GUIDE,
             "focus_presets": Task.FOCUS_PRESETS,
-            "task_count": Task.objects.filter(owner=request.user).count() if request.user.is_authenticated else 0,
+            "task_count": 0,
         },
     )
 
@@ -426,6 +437,13 @@ def focus_view(request):
     open_tasks = Task.objects.filter(owner=request.user, completed=False).order_by("-in_sprint", "-estimate", "-created_at")[:12]
     today = _today_focus(request.user)
     recent = FocusSession.objects.filter(owner=request.user).select_related("task")[:8]
+    checkin = None
+    try:
+        checkin_id = int(request.GET.get("checkin", 0) or 0)
+    except (TypeError, ValueError):
+        checkin_id = 0
+    if checkin_id:
+        checkin = FocusSession.objects.filter(pk=checkin_id, owner=request.user, energy_out__isnull=True).first()
     ladder = [1, 2, 3, 5]
     return render(
         request,
@@ -440,6 +458,7 @@ def focus_view(request):
             "open_tasks": open_tasks,
             "today": today,
             "week": _week_focus(request.user),
+            "checkin": checkin,
             "recent": recent,
             "break_minutes": FocusSession.suggested_break(minutes),
         },
@@ -463,11 +482,15 @@ def focus_log(request):
         task_id = 0
     if task_id:
         task = Task.objects.filter(pk=task_id, owner=request.user).first()
-    FocusSession.objects.create(owner=request.user, task=task, minutes=minutes)
+    session = FocusSession.objects.create(owner=request.user, task=task, minutes=minutes)
     SignalEvent.log(request.user, SignalEvent.Kind.FOCUS, task=task, minutes=minutes)
     brk = FocusSession.suggested_break(minutes)
     label = f" on “{task.title}”" if task else ""
     messages.success(request, f"Logged {minutes}m of focus{label}. Take a {brk}m break.")
+    # Sampled energy check-in: every 3rd session earns a 10-second rating.
+    total = FocusSession.objects.filter(owner=request.user).count()
+    if total % 3 == 0:
+        return redirect(f"{redirect('main:focus').url}?checkin={session.pk}")
     return redirect("main:focus")
 
 
@@ -551,16 +574,19 @@ def lab_create_task(request):
         estimate = 0
     if not title:
         messages.error(request, "Give the estimated task a title first.")
-        return redirect("main:fibonacci")
+        return redirect("main:command")
     if estimate not in Task.FIB_POINTS:
         messages.error(request, "Pick a Fibonacci estimate (1, 2, 3, 5, 8, 13, 21).")
-        return redirect("main:fibonacci")
+        return redirect("main:command")
     Task.objects.create(owner=request.user, title=title[:255], estimate=estimate)
     messages.success(request, f"Estimated “{title}” at {estimate} pts → added to backlog.")
     return redirect("main:index")
 
 
-def fibonacci_view(request):
+def _fibonacci_context(request):
+    """Sequence explorer state, shared by the Command page's Lab widget."""
+    import math
+
     max_terms = getattr(settings, "FIBONACCI_MAX_TERMS", 1000)
     form = FibonacciForm(request.GET or None, max_terms=max_terms)
     series: list[int] = []
@@ -581,18 +607,14 @@ def fibonacci_view(request):
                 "ratio": ratio,
                 "max": max(series),
             }
-        # lightweight session history (last 6 queries)
         hist = request.session.get("fib_history", [])
         if n not in hist:
             hist = [n, *hist][:6]
             request.session["fib_history"] = hist
-    elif request.GET:
+    elif request.GET and any(k in request.GET for k in ("n",)):
         messages.error(request, f"Enter a whole number between 1 and {max_terms}.")
 
     history = request.session.get("fib_history", [])
-    # Bar scaling: log-scale so huge terms still render.
-    import math
-
     bars = []
     if series:
         denom = math.log10(max(series[-1], 1) + 1) or 1
@@ -601,28 +623,63 @@ def fibonacci_view(request):
             bars.append({"i": i, "v": v, "h": h, "even": v % 2 == 0})
     truncated = len(series) > len(bars) if series else False
 
-    # Estimator context: which Fib point is selected?
     try:
         sel_points = int(request.GET.get("points", 5))
     except (TypeError, ValueError):
         sel_points = 5
     if sel_points not in Task.FIB_POINTS:
         sel_points = 5
+    return {
+        "form": form,
+        "series": series,
+        "bars": bars,
+        "truncated": truncated,
+        "n": n,
+        "stats": stats,
+        "history": history,
+        "max_terms": max_terms,
+        "fib_points": Task.FIB_POINTS,
+        "sel_points": sel_points,
+        "estimate_guide": Task.ESTIMATE_GUIDE,
+    }
 
-    return render(
-        request,
-        "main/fibonacci.html",
+
+@login_required
+def command_view(request):
+    """Elite command center: readiness, energy, calibration, risks, briefing, Lab."""
+    context = _fibonacci_context(request)
+    context.update(
         {
-            "form": form,
-            "series": series,
-            "bars": bars,
-            "truncated": truncated,
-            "n": n,
-            "stats": stats,
-            "history": history,
-            "max_terms": max_terms,
-            "fib_points": Task.FIB_POINTS,
-            "sel_points": sel_points,
-            "estimate_guide": Task.ESTIMATE_GUIDE,
-        },
+            "readiness": readiness(request.user),
+            "energy": energy_map(request.user),
+            "calibration": calibration_summary(request.user),
+            "risks": at_risk(request.user),
+            "briefing": briefing(request.user),
+            "sprint": _sprint_stats(request.session.get("sprint_capacity", 21), request.user),
+        }
     )
+    return render(request, "main/command.html", context)
+
+
+@login_required
+@require_POST
+def focus_checkin(request):
+    """Sampled energy check-in: rate energy in/out 1–5 for a recent session."""
+    try:
+        session = FocusSession.objects.get(pk=int(request.POST.get("session", 0) or 0), owner=request.user)
+    except (FocusSession.DoesNotExist, TypeError, ValueError):
+        messages.error(request, "That session is gone.")
+        return redirect("main:focus")
+    try:
+        energy_in = int(request.POST.get("energy_in", 0))
+        energy_out = int(request.POST.get("energy_out", 0))
+    except (TypeError, ValueError):
+        energy_in = energy_out = 0
+    if energy_in not in (1, 2, 3, 4, 5) or energy_out not in (1, 2, 3, 4, 5):
+        messages.error(request, "Rate both from 1 (drained) to 5 (charged).")
+        return redirect(f"{redirect('main:focus').url}?checkin={session.pk}")
+    session.energy_in = energy_in
+    session.energy_out = energy_out
+    session.save(update_fields=["energy_in", "energy_out"])
+    messages.success(request, "Energy logged. Your map sharpens with every check-in.")
+    return redirect("main:focus")
